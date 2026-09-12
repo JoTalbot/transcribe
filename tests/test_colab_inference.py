@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from transcribe_intelligence.exchange import JobEnvelope
-from scripts.colab_inference import InferenceConfig, make_processor, transcribe_file
+from scripts.colab_inference import InferenceConfig, make_processor, resolve_audio, transcribe_file
 
 
 class FakeSegment:
@@ -32,6 +32,20 @@ class FakeDiarizer:
         return Result()
 
 
+def test_resolve_audio_uses_manifest_path(tmp_path: Path):
+    audio = tmp_path / "nested" / "call.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"audio")
+    request = JobEnvelope("job1", "a1b2c3", "diarization", input_path="nested/call.wav")
+    assert resolve_audio(tmp_path, request) == audio.resolve()
+
+
+def test_resolve_audio_blocks_escape(tmp_path: Path):
+    request = JobEnvelope("job1", "rec1", "diarization", input_path="../secret.wav")
+    with pytest.raises(ValueError):
+        resolve_audio(tmp_path, request)
+
+
 def test_transcribe_file_writes_artifacts(tmp_path: Path):
     audio = tmp_path / "source.wav"
     audio.write_bytes(b"audio")
@@ -41,10 +55,11 @@ def test_transcribe_file_writes_artifacts(tmp_path: Path):
 
 
 def test_processor_returns_completed_result(tmp_path: Path):
-    audio = tmp_path / "rec1.wav"
+    audio = tmp_path / "nested" / "call.wav"
+    audio.parent.mkdir()
     audio.write_bytes(b"audio")
     processor = make_processor(tmp_path, tmp_path / "out", FakeWhisper(), FakeDiarizer())
-    result = processor(JobEnvelope("job1", "rec1", "diarization"))
+    result = processor(JobEnvelope("job1", "rec1", "diarization", input_path="nested/call.wav"))
     assert result.status == "completed"
     assert result.artifact_id == "rec1:txt"
 
