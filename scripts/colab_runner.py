@@ -26,7 +26,7 @@ async def run(url: str, profile: Path, timeout: int, headless: bool) -> None:
         try:
             await page.get_by_role("button", name="Run all").click(timeout=15_000)
             print("Run all clicked.")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"Run all was not clicked automatically: {exc}")
             print("Use Runtime -> Run all in the browser.")
         if not headless:

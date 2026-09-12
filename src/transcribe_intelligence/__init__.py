@@ -25,10 +25,12 @@ __all__ = [
     "queue",
     "relations",
     "repository",
+    "result_service",
     "search",
     "service",
     "state_store",
     "text_analysis",
     "vector_fusion",
     "worker_protocol",
+    "worker_results",
 ]

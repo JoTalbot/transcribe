@@ -27,6 +27,8 @@ class Repository(Protocol):
 
     def list_jobs(self, recording_id: str) -> list[ExecutionJob]: ...
 
+    def update_job(self, job: ExecutionJob) -> ExecutionJob: ...
+
 
 class InMemoryRepository:
     """Deterministic reference implementation used by tests and local runs."""
@@ -54,6 +56,12 @@ class InMemoryRepository:
 
     def get_job(self, job_id: str) -> ExecutionJob | None:
         return self._jobs.get(job_id)
+
+    def update_job(self, job: ExecutionJob) -> ExecutionJob:
+        if job.job_id not in self._jobs:
+            raise KeyError(f"unknown job: {job.job_id}")
+        self._jobs[job.job_id] = job
+        return job
 
     def list_jobs(self, recording_id: str) -> list[ExecutionJob]:
         return sorted(

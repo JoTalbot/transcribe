@@ -52,7 +52,7 @@ def main() -> int:
             service = build("drive", "v3", credentials=credentials, cache_discovery=False)
             service.files().list(pageSize=1, fields="files(id,name)").execute()
             print("Drive API: credentials accepted")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"Drive API check failed: {exc}")
             return 3
     else:

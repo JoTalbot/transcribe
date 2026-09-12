@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
 
 from .entities import EventMention, RelationMention
 from .evidence import Evidence

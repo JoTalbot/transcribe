@@ -23,7 +23,7 @@ async def worker(
     while True:
         try:
             await run(url, profile, timeout, headless)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"Colab worker iteration failed: {exc}", flush=True)
         print(f"Sleeping {interval}s before the next Colab check.", flush=True)
         await asyncio.sleep(interval)
