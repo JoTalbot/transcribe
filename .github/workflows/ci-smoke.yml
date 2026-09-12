@@ -1,0 +1,26 @@
+name: CI Smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate repository
+        run: |
+          python -m json.tool notebooks/transcribe_pipeline.ipynb >/dev/null
+          python -m compileall -q scripts
+          test -f README.md
+          test -f scripts/sync_drive.py
+          test -f scripts/colab_runner.py
+          echo 'CI smoke validation passed.'
