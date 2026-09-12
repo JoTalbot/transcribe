@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
-from colab_inference import InferenceConfig, make_processor
+from colab_inference import InferenceConfig, make_processor, resolve_audio
+from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 
 
 def claim_request(exchange: FileExchange, job_id: str) -> Path:
@@ -51,10 +52,11 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
         path.unlink(missing_ok=True)
 
 
-def load_models(config: InferenceConfig):
+def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
     import torch
     from faster_whisper import WhisperModel
     from pyannote.audio import Pipeline
+    from speechbrain.inference.speaker import EncoderClassifier
     from google.colab import userdata
 
     if not torch.cuda.is_available():
@@ -65,7 +67,38 @@ def load_models(config: InferenceConfig):
     whisper = WhisperModel(config.whisper_model, device="cuda", compute_type=config.compute_type)
     diarizer = Pipeline.from_pretrained(config.diarization_model, use_auth_token=token)
     diarizer.to(torch.device("cuda"))
-    return whisper, diarizer
+    embedder = EncoderClassifier.from_hparams(
+        source=embedding_config.model_name,
+        savedir="/content/speechbrain_ecapa",
+        run_opts={"device": "cuda"},
+    )
+    return whisper, diarizer, embedder
+
+
+def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedder, config: InferenceConfig, embedding_config: EmbeddingConfig):
+    base_processor = make_processor(input_dir, output_dir, whisper, diarizer, config)
+
+    def process(request: JobEnvelope) -> ResultEnvelope:
+        if request.stage != "embeddings":
+            return base_processor(request)
+        audio = resolve_audio(input_dir, request)
+        diarized_json = output_dir / request.recording_id / f"{request.recording_id}.json"
+        if not diarized_json.is_file():
+            raise FileNotFoundError(f"diarization artifact not found: {diarized_json}")
+        embeddings = extract_and_persist(
+            audio=audio,
+            diarized_json=diarized_json,
+            output_dir=output_dir / request.recording_id / "embeddings",
+            recording_id=request.recording_id,
+            model=embedder,
+            config=embedding_config,
+        )
+        artifact_id = f"{request.recording_id}:embeddings:json"
+        if not embeddings:
+            raise RuntimeError(f"no usable speaker segments for {request.recording_id}")
+        return ResultEnvelope(request.job_id, "completed", artifact_id=artifact_id)
+
+    return process
 
 
 def main() -> int:
@@ -80,8 +113,9 @@ def main() -> int:
         parser.error("--poll must be at least 1 second")
 
     config = InferenceConfig()
-    whisper, diarizer = load_models(config)
-    processor = make_processor(Path(args.input), Path(args.output), whisper, diarizer, config)
+    embedding_config = EmbeddingConfig()
+    whisper, diarizer, embedder = load_models(config, embedding_config)
+    processor = build_processor(Path(args.input), Path(args.output), whisper, diarizer, embedder, config, embedding_config)
     exchange = FileExchange(Path(args.root))
 
     while True:
