@@ -1,10 +1,11 @@
-"""Backend-neutral execution contract for pipeline workers."""
+"""Backend-neutral execution contract and dispatcher for pipeline workers."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
 
-from .job_store import ExecutionJob
+from .job_store import ExecutionJob, JobStore
+from .worker_protocol import claim, complete, fail
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +17,8 @@ class ExecutionResult:
 
 
 class ExecutionBackend(Protocol):
+    """Minimal contract implemented by local, Colab, or future GPU backends."""
+
     name: str
 
     def execute(self, job: ExecutionJob) -> ExecutionResult:
@@ -23,7 +26,26 @@ class ExecutionBackend(Protocol):
 
 
 class DryRunBackend:
+    """Deterministic backend used by orchestration tests without inference."""
+
     name = "dry-run"
 
     def execute(self, job: ExecutionJob) -> ExecutionResult:
         return ExecutionResult(job.job_id, "completed", artifact_id=f"dry-run:{job.job_id}")
+
+
+def dispatch_one(store: JobStore, job_id: str, backend: ExecutionBackend, worker: str, lease_seconds: int = 900) -> ExecutionJob:
+    """Claim, execute, and finalize one job with retry-safe failure handling."""
+    job = claim(store, job_id, worker, lease_seconds)
+    if job.status == "completed":
+        return job
+    try:
+        result = backend.execute(job)
+        if result.job_id != job.job_id:
+            raise RuntimeError("backend returned a different job_id")
+        if result.status == "completed" and result.artifact_id:
+            return complete(store, job_id, worker, result.artifact_id)
+        error = result.error or "backend did not complete the job"
+        return fail(store, job_id, worker, error)
+    except Exception as exc:
+        return fail(store, job_id, worker, str(exc))
