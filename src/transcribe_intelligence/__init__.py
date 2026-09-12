@@ -2,6 +2,7 @@
 
 __all__ = [
     "artifact_registry",
+    "artifacts",
     "colab_backend",
     "dependencies",
     "evidence",
