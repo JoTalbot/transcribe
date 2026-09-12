@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 from .entities import TopicMention
-from .vector_fusion import cosine
+from .vector_fusion import cosine_similarity
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +29,7 @@ def link_topic_mentions(mentions: list[TopicMention], embeddings: dict[str, tupl
         rv = embeddings.get(right.topic_id)
         if lv is None or rv is None:
             continue
-        score = cosine(lv, rv)
+        score = cosine_similarity(list(lv), list(rv))
         if score >= threshold:
             result.append(ConversationThread(
                 f"{left.topic_id}~{right.topic_id}",
