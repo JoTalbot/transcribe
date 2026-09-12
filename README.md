@@ -5,13 +5,32 @@ Automated audio transcription with speaker diarization. Heavy inference runs in 
 ## Architecture
 
 ```text
-Google Drive/input -> Colab notebook -> Whisper large-v3 + Pyannote -> Drive/output
-                         ^                    |
-                         |                    v
-                    HF token             processed.json
-                         |
-                  GitHub Actions ---- validation / queue checks
+Audio corpus
+    |
+    v
+build_manifest.py  ---> recording_id + exact relative path + SHA-256
+    |
+    v
+Oracle / orchestrator
+    |
+    +--> resumable state + stable jobs
+    |
+    +--> submit_exchange_jobs.py ---> Drive/exchange/jobs/*.json
+                                      |
+                                      v
+                               Colab GPU worker
+                               Whisper + Pyannote
+                                      |
+                                      v
+                               output + manifests
+                                      |
+                                      v
+                               exchange/results/*.json
 ```
+
+The manifest path is the source of truth for locating audio. A `recording_id` is derived from the relative path, so the worker must not assume that the ID is the original filename. Exchange envelopes therefore carry the exact `input_path`.
+
+The orchestration layer keeps the logical stages resumable and idempotent. The current Colab inference adapter performs the GPU-heavy ASR/diarization operation; the broader 24-stage intelligence roadmap remains a target architecture rather than a claim that every stage is already implemented.
 
 ### 5-minute setup
 
@@ -28,6 +47,21 @@ Google Drive/input -> Colab notebook -> Whisper large-v3 + Pyannote -> Drive/out
 For optional server-side Drive queue checks, add `GDRIVE_CREDENTIALS` containing a Google service-account JSON. Share the Drive `transcribe` folder with that service-account email. Do **not** commit credentials or Google cookies.
 
 `HUGGINGFACE_TOKEN` is only needed by Colab and should normally live in Colab Secrets, not GitHub Actions.
+
+## Exchange queue
+
+After building a manifest and creating local execution jobs, materialize those jobs for the Colab worker with:
+
+```bash
+python scripts/submit_exchange_jobs.py \
+  --manifest state/manifest.json \
+  --jobs state/jobs.json \
+  --exchange /path/to/transcribe/exchange
+```
+
+The command reads `recording_id -> path` from the manifest and writes an exchange `JobEnvelope` containing the exact relative `input_path`. It skips jobs that are already running or completed, so repeated submission is safe.
+
+The Colab exchange worker watches `exchange/jobs`, claims requests into `processing`, runs GPU inference, writes `exchange/results`, and removes the processing marker after completion or failure.
 
 ## Outputs
 
