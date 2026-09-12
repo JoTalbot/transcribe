@@ -13,3 +13,20 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.ruff.lint]
+# Keep CI focused on correctness while the existing codebase is migrated to
+# Ruff's newer modernization/style rules incrementally.
+ignore = [
+    "B008",
+    "BLE001",
+    "FURB162",
+    "FURB167",
+    "I001",
+    "RUF022",
+    "RUF046",
+    "TRY004",
+    "UP017",
+    "UP035",
+    "UP037",
+]
