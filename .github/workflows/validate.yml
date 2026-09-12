@@ -1,0 +1,41 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install validation tools
+        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+      - name: Compile scripts
+        run: python -m compileall -q scripts
+      - name: Validate notebook JSON
+        run: python -m json.tool notebooks/transcribe_pipeline.ipynb >/dev/null
+      - name: Validate notebook structure
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('notebooks/transcribe_pipeline.ipynb')
+          nb = json.loads(p.read_text())
+          assert nb['nbformat'] == 4
+          assert isinstance(nb['cells'], list) and nb['cells']
+          print(f'Notebook valid: {len(nb["cells"])} cells')
+          PY
+      - name: Lint Python
+        run: ruff check scripts
+      - name: Check repository structure
+        run: |
+          test -f README.md
+          test -f requirements-sync.txt
+          test -f notebooks/transcribe_pipeline.ipynb
+          test -f scripts/sync_drive.py
+          test -f scripts/colab_runner.py
