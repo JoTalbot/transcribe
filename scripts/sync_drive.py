@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Inspect a Drive/local transcription queue and prepare local directories."""
 from __future__ import annotations
 
