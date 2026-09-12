@@ -1,4 +1,4 @@
-"""Real Whisper + pyannote inference adapter for a Colab GPU runtime."""
+"""Stage-aware Whisper + pyannote inference for a Colab GPU runtime."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,6 +8,7 @@ from typing import Any
 
 from transcribe_intelligence.artifacts import ArtifactManifest, build_manifest, write_manifest
 from transcribe_intelligence.exchange import JobEnvelope, ResultEnvelope
+from transcribe_intelligence.stage_artifacts import DiarizedSegment, TranscriptSegment, diarized_payload, transcript_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,9 +20,7 @@ class InferenceConfig:
 
 def _stamp(seconds: float, comma: bool = False) -> str:
     ms = max(0, int(round(float(seconds) * 1000)))
-    h, ms = divmod(ms, 3_600_000)
-    m, ms = divmod(ms, 60_000)
-    s, ms = divmod(ms, 1_000)
+    h, ms = divmod(ms, 3_600_000); m, ms = divmod(ms, 60_000); s, ms = divmod(ms, 1_000)
     sep = "," if comma else "."
     return f"{h:02d}:{m:02d}:{s:02d}{sep}{ms:03d}" if comma else f"{h:02d}:{m:02d}:{s:02d}"
 
@@ -36,7 +35,6 @@ def _assign_speaker(start: float, end: float, turns: list[tuple[float, float, st
 
 
 def resolve_audio(input_dir: Path, request: JobEnvelope) -> Path:
-    """Resolve audio from an explicit exchange path, then safe fallbacks."""
     if request.input_path:
         candidate = (input_dir / request.input_path).resolve()
         root = input_dir.resolve()
@@ -45,47 +43,71 @@ def resolve_audio(input_dir: Path, request: JobEnvelope) -> Path:
         if candidate.is_file():
             return candidate
         raise FileNotFoundError(candidate)
-
     direct = (input_dir / request.recording_id).resolve()
     if input_dir.resolve() in direct.parents and direct.is_file():
         return direct
-
     matches = list(input_dir.rglob(f"{request.recording_id}.*"))
     if len(matches) == 1:
         return matches[0]
     raise FileNotFoundError(f"audio for recording {request.recording_id!r} not found")
 
 
-def transcribe_file(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, whisper: Any, diarizer: Any) -> list[ArtifactManifest]:
-    """Run ASR + diarization and emit TXT/JSON/SRT artifacts."""
+def _segments_from_whisper(audio: Path, whisper: Any) -> list[TranscriptSegment]:
+    segments, _ = whisper.transcribe(str(audio), beam_size=5, vad_filter=True, word_timestamps=True)
+    return [TranscriptSegment(float(seg.start), float(seg.end), seg.text.strip()) for seg in segments if seg.text.strip()]
+
+
+def _diarize(audio: Path, transcript: list[TranscriptSegment], diarizer: Any) -> list[DiarizedSegment]:
     diar = diarizer(str(audio))
     turns = [(s.start, s.end, speaker) for s, _, speaker in diar.itertracks(yield_label=True)]
-    segments, _ = whisper.transcribe(str(audio), beam_size=5, vad_filter=True, word_timestamps=True)
-    rows = []
-    for seg in segments:
-        text = seg.text.strip()
-        if text:
-            rows.append({"start": float(seg.start), "end": float(seg.end), "speaker": _assign_speaker(seg.start, seg.end, turns), "text": text})
+    return [DiarizedSegment(s.start, s.end, _assign_speaker(s.start, s.end, turns), s.text) for s in transcript]
 
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def run_asr(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, whisper: Any) -> list[ArtifactManifest]:
+    segments = _segments_from_whisper(audio, whisper)
+    payload = transcript_payload(recording_id, audio.name, f"whisper/{config.whisper_model}", segments)
     output_dir.mkdir(parents=True, exist_ok=True)
-    txt = "\n".join(f'[{_stamp(r["start"])} - {r["speaker"]}]: {r["text"]}' for r in rows) + "\n"
-    payload = {"recording_id": recording_id, "source": audio.name, "model": f"whisper/{config.whisper_model}", "diarization": config.diarization_model, "segments": rows}
-    srt = "\n".join(f'{i}\n{_stamp(r["start"], True)} --> {_stamp(r["end"], True)}\n[{r["speaker"]}] {r["text"]}\n' for i, r in enumerate(rows, 1))
+    json_path = output_dir / "transcript.json"
+    txt_path = output_dir / "transcript.txt"
+    _write_json(json_path, payload)
+    txt_path.write_text("\n".join(f'[{_stamp(s.start)} - {s.end:.2f}]: {s.text}' for s in segments) + "\n", encoding="utf-8")
+    return [build_manifest(json_path, artifact_id=f"{recording_id}:asr:json", recording_id=recording_id, stage="asr", kind="transcript-json", producer="colab-faster-whisper", model_version=config.whisper_model), build_manifest(txt_path, artifact_id=f"{recording_id}:asr:txt", recording_id=recording_id, stage="asr", kind="transcript-txt", producer="colab-faster-whisper", model_version=config.whisper_model)]
 
-    paths = {"txt": output_dir / f"{recording_id}.txt", "json": output_dir / f"{recording_id}.json", "srt": output_dir / f"{recording_id}.srt"}
-    paths["txt"].write_text(txt, encoding="utf-8")
-    paths["json"].write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    paths["srt"].write_text(srt, encoding="utf-8")
 
-    return [build_manifest(p, artifact_id=f"{recording_id}:{kind}", recording_id=recording_id, stage="diarization", kind=kind, producer="colab-whisper-pyannote", model_version=config.whisper_model) for kind, p in paths.items()]
+def run_diarization(audio: Path, asr_json: Path, output_dir: Path, recording_id: str, config: InferenceConfig, diarizer: Any) -> list[ArtifactManifest]:
+    payload = json.loads(asr_json.read_text(encoding="utf-8"))
+    transcript = [TranscriptSegment(float(s["start"]), float(s["end"]), str(s["text"])) for s in payload["segments"]]
+    segments = _diarize(audio, transcript, diarizer)
+    result = diarized_payload(recording_id, audio.name, config.diarization_model, segments)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "diarized.json"
+    txt_path = output_dir / "diarized.txt"
+    srt_path = output_dir / "diarized.srt"
+    _write_json(json_path, result)
+    txt_path.write_text("\n".join(f'[{_stamp(s.start)} - {s.speaker}]: {s.text}' for s in segments) + "\n", encoding="utf-8")
+    srt_path.write_text("\n".join(f'{i}\n{_stamp(s.start, True)} --> {_stamp(s.end, True)}\n[{s.speaker}] {s.text}\n' for i, s in enumerate(segments, 1)), encoding="utf-8")
+    return [build_manifest(json_path, artifact_id=f"{recording_id}:diarization:json", recording_id=recording_id, stage="diarization", kind="diarized-json", producer="colab-pyannote", model_version=config.diarization_model), build_manifest(txt_path, artifact_id=f"{recording_id}:diarization:txt", recording_id=recording_id, stage="diarization", kind="diarized-txt", producer="colab-pyannote", model_version=config.diarization_model), build_manifest(srt_path, artifact_id=f"{recording_id}:diarization:srt", recording_id=recording_id, stage="diarization", kind="diarized-srt", producer="colab-pyannote", model_version=config.diarization_model)]
 
 
 def make_processor(input_dir: Path, output_dir: Path, whisper: Any, diarizer: Any, config: InferenceConfig = InferenceConfig()):
-    """Build an exchange processor around already-loaded GPU models."""
     def process(request: JobEnvelope) -> ResultEnvelope:
         audio = resolve_audio(input_dir, request)
-        manifests = transcribe_file(audio, output_dir / request.recording_id, request.recording_id, config, whisper, diarizer)
+        root = output_dir / request.recording_id
+        if request.stage == "asr":
+            manifests = run_asr(audio, root / "asr", request.recording_id, config, whisper)
+        elif request.stage == "diarization":
+            asr_json = root / "asr" / "transcript.json"
+            if not asr_json.is_file():
+                raise FileNotFoundError(f"ASR artifact required before diarization: {asr_json}")
+            manifests = run_diarization(audio, asr_json, root / "diarization", request.recording_id, config, diarizer)
+        else:
+            raise ValueError(f"unsupported Colab inference stage: {request.stage}")
         for manifest in manifests:
-            write_manifest(manifest, output_dir / request.recording_id / f"{manifest.kind}.manifest.json")
+            write_manifest(manifest, root / manifest.stage / f"{manifest.kind}.manifest.json")
         return ResultEnvelope(request.job_id, "completed", artifact_id=manifests[0].artifact_id)
     return process

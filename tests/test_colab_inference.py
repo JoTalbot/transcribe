@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from transcribe_intelligence.exchange import JobEnvelope
-from scripts.colab_inference import InferenceConfig, make_processor, resolve_audio, transcribe_file
+from scripts.colab_inference import InferenceConfig, make_processor, resolve_audio
 
 
 class FakeSegment:
@@ -46,25 +46,19 @@ def test_resolve_audio_blocks_escape(tmp_path: Path):
         resolve_audio(tmp_path, request)
 
 
-def test_transcribe_file_writes_artifacts(tmp_path: Path):
-    audio = tmp_path / "source.wav"
-    audio.write_bytes(b"audio")
-    manifests = transcribe_file(audio, tmp_path / "out", "rec1", InferenceConfig(), FakeWhisper(), FakeDiarizer())
-    assert {m.kind for m in manifests} == {"txt", "json", "srt"}
-    assert (tmp_path / "out" / "rec1.txt").read_text(encoding="utf-8").startswith("[00:00:00 - SPEAKER_00]")
-
-
-def test_processor_returns_completed_result(tmp_path: Path):
+def test_asr_and_diarization_are_distinct(tmp_path: Path):
     audio = tmp_path / "nested" / "call.wav"
-    audio.parent.mkdir()
-    audio.write_bytes(b"audio")
+    audio.parent.mkdir(); audio.write_bytes(b"audio")
     processor = make_processor(tmp_path, tmp_path / "out", FakeWhisper(), FakeDiarizer())
-    result = processor(JobEnvelope("job1", "rec1", "diarization", input_path="nested/call.wav"))
-    assert result.status == "completed"
-    assert result.artifact_id == "rec1:txt"
+    asr = processor(JobEnvelope("job-asr", "rec1", "asr", input_path="nested/call.wav"))
+    assert asr.artifact_id == "rec1:asr:json"
+    diar = processor(JobEnvelope("job-dia", "rec1", "diarization", input_path="nested/call.wav"))
+    assert diar.artifact_id == "rec1:diarization:json"
+    assert (tmp_path / "out" / "rec1" / "diarization" / "diarized.json").is_file()
 
 
-def test_processor_rejects_missing_audio(tmp_path: Path):
+def test_diarization_requires_asr(tmp_path: Path):
+    audio = tmp_path / "call.wav"; audio.write_bytes(b"audio")
     processor = make_processor(tmp_path, tmp_path / "out", FakeWhisper(), FakeDiarizer())
-    with pytest.raises(FileNotFoundError):
-        processor(JobEnvelope("job1", "missing", "diarization"))
+    with pytest.raises(FileNotFoundError, match="ASR artifact required"):
+        processor(JobEnvelope("job-dia", "rec1", "diarization", input_path="call.wav"))
