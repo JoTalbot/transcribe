@@ -3,6 +3,7 @@
 __all__ = [
     "artifact_registry",
     "evidence",
+    "execution",
     "job_store",
     "pipeline_contract",
     "planner",
