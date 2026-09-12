@@ -121,7 +121,7 @@ def main() -> int:
     parser.add_argument("--recording-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", default=EmbeddingConfig.model_name)
-    args = parser.parse_args()
+    parser.parse_args()
     raise SystemExit("CLI model loading is intentionally owned by colab_exchange_worker.py")
 
 
