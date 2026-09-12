@@ -2,6 +2,7 @@
 
 __all__ = [
     "artifact_registry",
+    "dependencies",
     "evidence",
     "execution",
     "job_store",
