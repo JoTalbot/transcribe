@@ -73,8 +73,8 @@ def transcribe_asr_file(audio: Path, output_dir: Path, recording_id: str, config
     _write(json_path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     _write(txt_path, "\n".join(r["text"] for r in rows) + "\n")
     return [
-        build_manifest(json_path, f"{recording_id}:asr:json", recording_id, "asr", "transcript", "colab-faster-whisper", config.whisper_model),
-        build_manifest(txt_path, f"{recording_id}:asr:txt", recording_id, "asr", "transcript_txt", "colab-faster-whisper", config.whisper_model),
+        build_manifest(json_path, artifact_id=f"{recording_id}:asr:json", recording_id=recording_id, stage="asr", kind="transcript", producer="colab-faster-whisper", model_version=config.whisper_model),
+        build_manifest(txt_path, artifact_id=f"{recording_id}:asr:txt", recording_id=recording_id, stage="asr", kind="transcript_txt", producer="colab-faster-whisper", model_version=config.whisper_model),
     ]
 
 
@@ -96,7 +96,7 @@ def transcribe_file(audio: Path, output_dir: Path, recording_id: str, config: In
     _write(paths["txt"], txt)
     _write(paths["json"], json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     _write(paths["srt"], srt)
-    return [build_manifest(p, f"{recording_id}:{kind}", recording_id, "diarization", kind, "colab-whisper-pyannote", config.whisper_model) for kind, p in paths.items()]
+    return [build_manifest(p, artifact_id=f"{recording_id}:{kind}", recording_id=recording_id, stage="diarization", kind=kind, producer="colab-whisper-pyannote", model_version=config.whisper_model) for kind, p in paths.items()]
 
 
 def diarize_asr_file(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, diarizer: Any) -> list[ArtifactManifest]:
@@ -114,7 +114,11 @@ def diarize_asr_file(audio: Path, output_dir: Path, recording_id: str, config: I
     _write(json_path, json.dumps({**payload, "diarization": config.diarization_model, "segments": rows}, ensure_ascii=False, indent=2) + "\n")
     _write(txt_path, "\n".join(f'[{_stamp(r["start"])} - {r["speaker"]}]: {r["text"]}' for r in rows) + "\n")
     _write(srt_path, "\n".join(f'{i}\n{_stamp(r["start"], True)} --> {_stamp(r["end"], True)}\n[{r["speaker"]}] {r["text"]}\n' for i, r in enumerate(rows, 1)))
-    return [build_manifest(p, f"{recording_id}:diarization:{kind}", recording_id, "diarization", kind, "colab-whisper-pyannote", config.diarization_model) for kind, p in {"json": json_path, "txt": txt_path, "srt": srt_path}.items()]
+    return [
+        build_manifest(json_path, artifact_id=f"{recording_id}:diarization:json", recording_id=recording_id, stage="diarization", kind="json", producer="colab-whisper-pyannote", model_version=config.diarization_model),
+        build_manifest(txt_path, artifact_id=f"{recording_id}:diarization:txt", recording_id=recording_id, stage="diarization", kind="txt", producer="colab-whisper-pyannote", model_version=config.diarization_model),
+        build_manifest(srt_path, artifact_id=f"{recording_id}:diarization:srt", recording_id=recording_id, stage="diarization", kind="srt", producer="colab-whisper-pyannote", model_version=config.diarization_model),
+    ]
 
 
 def make_processor(input_dir: Path, output_dir: Path, whisper: Any, diarizer: Any, config: InferenceConfig = InferenceConfig()):
