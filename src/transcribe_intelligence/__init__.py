@@ -32,4 +32,5 @@ __all__ = [
     "text_analysis",
     "vector_fusion",
     "worker_protocol",
+    "worker_results",
 ]
