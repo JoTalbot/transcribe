@@ -61,7 +61,7 @@ def test_processor_returns_completed_result(tmp_path: Path):
     processor = make_processor(tmp_path, tmp_path / "out", FakeWhisper(), FakeDiarizer())
     result = processor(JobEnvelope("job1", "rec1", "diarization", input_path="nested/call.wav"))
     assert result.status == "completed"
-    assert result.artifact_id == "rec1:txt"
+    assert result.artifact_id == "rec1:diarization:json"
 
 
 def test_processor_rejects_missing_audio(tmp_path: Path):

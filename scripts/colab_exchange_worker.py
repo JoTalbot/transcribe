@@ -6,14 +6,19 @@ import os
 import time
 from pathlib import Path
 
-from colab_inference import InferenceConfig, make_processor, resolve_audio
-from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 from transcribe_intelligence.exchange import (
     ExchangeError,
     FileExchange,
     JobEnvelope,
     ResultEnvelope,
 )
+
+try:
+    from .colab_inference import InferenceConfig, make_processor, resolve_audio
+    from .colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
+except ImportError:
+    from colab_inference import InferenceConfig, make_processor, resolve_audio
+    from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 
 
 def claim_request(exchange: FileExchange, job_id: str) -> Path:
@@ -55,6 +60,11 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
         return result
     finally:
         path.unlink(missing_ok=True)
+
+
+def dry_run_processor(request: JobEnvelope) -> ResultEnvelope:
+    """Return a deterministic result without loading GPU models."""
+    return ResultEnvelope(request.job_id, "completed", artifact_id=f"dry-run:{request.job_id}")
 
 
 def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):

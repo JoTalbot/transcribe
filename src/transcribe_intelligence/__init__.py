@@ -1,6 +1,7 @@
 """Conversation intelligence primitives for the Transcribe pipeline."""
 
 __all__ = [
+    "api_adapter",
     "api_contract",
     "artifact_registry",
     "artifacts",

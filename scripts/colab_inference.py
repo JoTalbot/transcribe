@@ -129,6 +129,8 @@ def make_processor(input_dir: Path, output_dir: Path, whisper: Any, diarizer: An
         if request.stage == "asr":
             manifests = transcribe_asr_file(audio, recording_dir, request.recording_id, config, whisper)
         elif request.stage == "diarization":
+            if not (recording_dir / f"{request.recording_id}.asr.json").is_file():
+                transcribe_asr_file(audio, recording_dir, request.recording_id, config, whisper)
             manifests = diarize_asr_file(audio, recording_dir, request.recording_id, config, diarizer)
         else:
             raise ValueError(f"unsupported inference stage: {request.stage}")

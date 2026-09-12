@@ -8,7 +8,7 @@ from .entities import NameMention
 from .evidence import Evidence
 from .text_analysis import candidate_name_mentions
 
-_PERSON_CONTEXT = re.compile(r"\b(?:имя|зовут|это|познакомься|меня)\s+([А-ЯЁІЇЄҐ][\wА-Яа-яЁёІіЇїЄєҐґ'-]{1,30})", re.IGNORECASE)
+_PERSON_CONTEXT = re.compile(r"\b(?:меня\s+зовут|имя|зовут|это|познакомься)\s+([А-ЯЁІЇЄҐ][\wА-Яа-яЁёІіЇїЄєҐґ'-]{1,30})", re.IGNORECASE)
 
 
 def extract_name_candidates(text: str, recording_id: str, segment_id: str, start: float, end: float, speaker: str | None = None) -> list[NameMention]:
@@ -46,5 +46,5 @@ def extract_topics(text: str, topic_rules: dict[str, Iterable[str]]) -> list[tup
     for topic, keywords in sorted(topic_rules.items()):
         hits = sum(1 for keyword in keywords if str(keyword).casefold() in normalized)
         if hits:
-            found.append((topic, min(1.0, 0.35 + 0.15 * hits)))
+            found.append((topic, round(min(1.0, 0.35 + 0.15 * hits), 2)))
     return found
