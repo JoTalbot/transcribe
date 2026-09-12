@@ -25,6 +25,7 @@ __all__ = [
     "queue",
     "relations",
     "repository",
+    "result_service",
     "search",
     "service",
     "state_store",
