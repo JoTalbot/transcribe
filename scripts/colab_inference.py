@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,27 @@ def _assign_speaker(start: float, end: float, turns: list[tuple[float, float, st
     return max(scores, key=scores.get) if scores else "UNKNOWN"
 
 
+def resolve_audio(input_dir: Path, request: JobEnvelope) -> Path:
+    """Resolve audio from an explicit exchange path, then safe fallbacks."""
+    if request.input_path:
+        candidate = (input_dir / request.input_path).resolve()
+        root = input_dir.resolve()
+        if root not in candidate.parents:
+            raise ValueError("input_path escapes input directory")
+        if candidate.is_file():
+            return candidate
+        raise FileNotFoundError(candidate)
+
+    direct = (input_dir / request.recording_id).resolve()
+    if input_dir.resolve() in direct.parents and direct.is_file():
+        return direct
+
+    matches = list(input_dir.rglob(f"{request.recording_id}.*"))
+    if len(matches) == 1:
+        return matches[0]
+    raise FileNotFoundError(f"audio for recording {request.recording_id!r} not found")
+
+
 def transcribe_file(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, whisper: Any, diarizer: Any) -> list[ArtifactManifest]:
     """Run ASR + diarization and emit TXT/JSON/SRT artifacts."""
     diar = diarizer(str(audio))
@@ -52,7 +74,6 @@ def transcribe_file(audio: Path, output_dir: Path, recording_id: str, config: In
 
     paths = {"txt": output_dir / f"{recording_id}.txt", "json": output_dir / f"{recording_id}.json", "srt": output_dir / f"{recording_id}.srt"}
     paths["txt"].write_text(txt, encoding="utf-8")
-    import json
     paths["json"].write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     paths["srt"].write_text(srt, encoding="utf-8")
 
@@ -62,12 +83,7 @@ def transcribe_file(audio: Path, output_dir: Path, recording_id: str, config: In
 def make_processor(input_dir: Path, output_dir: Path, whisper: Any, diarizer: Any, config: InferenceConfig = InferenceConfig()):
     """Build an exchange processor around already-loaded GPU models."""
     def process(request: JobEnvelope) -> ResultEnvelope:
-        audio = input_dir / request.recording_id
-        if not audio.is_file():
-            matches = list(input_dir.rglob(f"{request.recording_id}.*"))
-            if len(matches) != 1:
-                raise FileNotFoundError(f"audio for recording {request.recording_id!r} not found")
-            audio = matches[0]
+        audio = resolve_audio(input_dir, request)
         manifests = transcribe_file(audio, output_dir / request.recording_id, request.recording_id, config, whisper, diarizer)
         for manifest in manifests:
             write_manifest(manifest, output_dir / request.recording_id / f"{manifest.kind}.manifest.json")
