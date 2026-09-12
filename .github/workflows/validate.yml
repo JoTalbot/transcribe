@@ -15,8 +15,8 @@ jobs:
           python-version: '3.11'
       - name: Install validation tools
         run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
-      - name: Compile scripts
-        run: python -m compileall -q scripts
+      - name: Compile Python
+        run: python -m compileall -q scripts src tests
       - name: Validate notebook JSON
         run: python -m json.tool notebooks/transcribe_pipeline.ipynb >/dev/null
       - name: Validate notebook structure
@@ -30,8 +30,10 @@ jobs:
           assert isinstance(nb['cells'], list) and nb['cells']
           print(f'Notebook valid: {len(nb["cells"])} cells')
           PY
+      - name: Validate conversation schema
+        run: python -m json.tool schemas/conversation.schema.json >/dev/null
       - name: Lint Python
-        run: ruff check scripts
+        run: ruff check scripts src tests
       - name: Check repository structure
         run: |
           test -f README.md
@@ -39,3 +41,8 @@ jobs:
           test -f notebooks/transcribe_pipeline.ipynb
           test -f scripts/sync_drive.py
           test -f scripts/colab_runner.py
+          test -f scripts/build_manifest.py
+          test -f scripts/colab_worker.py
+          test -f src/transcribe_intelligence/__init__.py
+          test -f src/transcribe_intelligence/text_analysis.py
+          test -f schemas/conversation.schema.json
