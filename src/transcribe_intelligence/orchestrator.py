@@ -4,15 +4,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
-from .dependencies import is_ready
+from .dependencies import dependencies
 from .job_store import ExecutionJob
-from .pipeline_contract import Stage
 
 
 @dataclass(frozen=True, slots=True)
 class StageTask:
     recording_id: str
-    stage: Stage
+    stage: str
     input_artifact_id: str | None = None
 
 
@@ -25,37 +24,24 @@ class OrchestrationDecision:
 
 def build_ready_plan(
     jobs: Iterable[ExecutionJob],
-    completed: set[tuple[str, Stage]],
+    completed: set[tuple[str, str]],
 ) -> list[OrchestrationDecision]:
-    """Return deterministic decisions without executing expensive work."""
-    ordered = sorted(jobs, key=lambda job: (job.recording_id, job.stage.value, job.job_id))
+    """Return deterministic run/skip/wait decisions without executing work."""
+    ordered = sorted(jobs, key=lambda job: (job.recording_id, job.stage, job.job_id))
     decisions: list[OrchestrationDecision] = []
     for job in ordered:
         key = (job.recording_id, job.stage)
-        if key in completed:
-            decisions.append(
-                OrchestrationDecision(
-                    StageTask(job.recording_id, job.stage),
-                    "skip",
-                    "stage already completed",
-                )
-            )
-        elif is_ready(job.stage, {stage for recording, stage in completed if recording == job.recording_id}):
-            decisions.append(
-                OrchestrationDecision(
-                    StageTask(job.recording_id, job.stage),
-                    "run",
-                    "dependencies satisfied",
-                )
-            )
+        task = StageTask(job.recording_id, job.stage, job.artifact_id)
+        if job.status == "completed" or key in completed:
+            decisions.append(OrchestrationDecision(task, "skip", "stage already completed"))
+            continue
+        prerequisite_keys = {
+            (job.recording_id, stage) for stage in dependencies(job.stage)
+        }
+        if prerequisite_keys.issubset(completed):
+            decisions.append(OrchestrationDecision(task, "run", "dependencies satisfied"))
         else:
-            decisions.append(
-                OrchestrationDecision(
-                    StageTask(job.recording_id, job.stage),
-                    "wait",
-                    "dependencies incomplete",
-                )
-            )
+            decisions.append(OrchestrationDecision(task, "wait", "dependencies incomplete"))
     return decisions
 
 
