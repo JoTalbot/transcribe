@@ -10,4 +10,5 @@ __all__ = [
     "state_store",
     "text_analysis",
     "vector_fusion",
+    "worker_protocol",
 ]
