@@ -5,9 +5,7 @@ from dataclasses import dataclass
 
 from .job_store import ExecutionJob, stable_job_id
 from .pipeline_contract import Stage
-from .queue import enqueue
 from .repository import Recording, Repository
-from .planner import PlanItem
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,12 +24,18 @@ def ingest_recording(repository: Repository, recording_id: str, input_path: str)
     existing = repository.get_job(stable_job_id(recording_id, Stage.INGEST.value))
     if existing is None:
         existing = repository.put_job(
-            ExecutionJob(stable_job_id(recording_id, Stage.INGEST.value), recording_id, Stage.INGEST.value)
+            ExecutionJob(
+                stable_job_id(recording_id, Stage.INGEST.value),
+                recording_id,
+                Stage.INGEST.value,
+            )
         )
     return IngestResult(recording, (existing,))
 
 
-def status(repository: Repository, recording_id: str) -> tuple[Recording | None, tuple[ExecutionJob, ...]]:
+def status(
+    repository: Repository, recording_id: str
+) -> tuple[Recording | None, tuple[ExecutionJob, ...]]:
     """Return a deterministic recording status snapshot."""
     recording = repository.get_recording(recording_id)
     return recording, tuple(repository.list_jobs(recording_id))
