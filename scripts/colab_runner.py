@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Best-effort UI runner for an already authenticated Colab browser profile.
 
 Google authentication is intentionally interactive. Do not store Google cookies
