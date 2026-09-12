@@ -6,9 +6,14 @@ import os
 import time
 from pathlib import Path
 
-from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 from colab_inference import InferenceConfig, make_processor, resolve_audio
 from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
+from transcribe_intelligence.exchange import (
+    ExchangeError,
+    FileExchange,
+    JobEnvelope,
+    ResultEnvelope,
+)
 
 
 def claim_request(exchange: FileExchange, job_id: str) -> Path:
@@ -44,7 +49,7 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
             raise ExchangeError("processor returned a different job_id")
         exchange.put_result(result)
         return result
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         result = ResultEnvelope(request.job_id, "failed", error=str(exc))
         exchange.put_result(result)
         return result
@@ -55,9 +60,9 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
 def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
     import torch
     from faster_whisper import WhisperModel
+    from google.colab import userdata
     from pyannote.audio import Pipeline
     from speechbrain.inference.speaker import EncoderClassifier
-    from google.colab import userdata
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required")
