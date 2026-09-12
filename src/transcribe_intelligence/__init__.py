@@ -3,8 +3,10 @@
 __all__ = [
     "artifact_registry",
     "evidence",
+    "job_store",
     "pipeline_contract",
     "planner",
+    "queue",
     "state_store",
     "text_analysis",
     "vector_fusion",
