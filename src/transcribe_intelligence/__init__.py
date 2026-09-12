@@ -7,6 +7,7 @@ __all__ = [
     "dependencies",
     "evidence",
     "execution",
+    "exchange",
     "job_store",
     "pipeline_contract",
     "planner",
