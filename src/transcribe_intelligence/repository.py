@@ -52,6 +52,7 @@ class InMemoryRepository:
         if existing is not None:
             return existing
         self._jobs[job.job_id] = job
+        self._refresh_recording_status(job.recording_id)
         return job
 
     def get_job(self, job_id: str) -> ExecutionJob | None:
@@ -61,10 +62,31 @@ class InMemoryRepository:
         if job.job_id not in self._jobs:
             raise KeyError(f"unknown job: {job.job_id}")
         self._jobs[job.job_id] = job
+        self._refresh_recording_status(job.recording_id)
         return job
 
     def list_jobs(self, recording_id: str) -> list[ExecutionJob]:
         return sorted(
             (job for job in self._jobs.values() if job.recording_id == recording_id),
             key=lambda job: (job.stage, job.job_id),
+        )
+
+    def _refresh_recording_status(self, recording_id: str) -> None:
+        recording = self._recordings.get(recording_id)
+        if recording is None:
+            return
+        jobs = self.list_jobs(recording_id)
+        if not jobs:
+            return
+        statuses = {job.status for job in jobs}
+        if "failed" in statuses:
+            status = "failed"
+        elif statuses == {"completed"}:
+            status = "completed"
+        elif "running" in statuses:
+            status = "running"
+        else:
+            status = "queued"
+        self._recordings[recording_id] = Recording(
+            recording.recording_id, recording.input_path, status
         )
