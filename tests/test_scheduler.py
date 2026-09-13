@@ -47,10 +47,11 @@ def test_scheduler_recovers_stale_job(tmp_path: Path):
     repository = InMemoryRepository()
     repository.put_recording(Recording("rec-1", "/input/audio.wav"))
     stale = datetime(2026, 9, 13, 14, 0, tzinfo=timezone.utc).isoformat()
-    repository.put_job(ExecutionJob("rec-1:asr", "rec-1", "asr", "running", 1, updated_at=stale))
+    job_id = stable_job_id("rec-1", "ingest")
+    repository.put_job(ExecutionJob(job_id, "rec-1", "ingest", "running", 1, updated_at=stale))
     scheduler = Scheduler(repository, FileExchange(tmp_path / "exchange"))
 
     report, dispatches = scheduler.run_once(["rec-1"], now=datetime(2026, 9, 13, 16, 0, tzinfo=timezone.utc))
     assert report.recovered == 1
     assert len(dispatches) == 1
-    assert repository.get_job("rec-1:asr").attempt == 2
+    assert repository.get_job(job_id).attempt == 2
