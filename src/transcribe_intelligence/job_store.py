@@ -20,7 +20,23 @@ class ExecutionJob:
     updated_at: str | None = None
 
     def next_attempt(self, worker: str | None = None) -> "ExecutionJob":
-        return ExecutionJob(self.job_id, self.recording_id, self.stage, "running", self.attempt + 1, self.artifact_id, worker or self.worker, None, now_iso())
+        return ExecutionJob(
+            self.job_id, self.recording_id, self.stage, "running",
+            self.attempt + 1, self.artifact_id, worker or self.worker,
+            None, now_iso(),
+        )
+
+    def heartbeat(self, worker: str | None = None) -> "ExecutionJob":
+        """Refresh the lease timestamp without changing attempt ownership."""
+        if self.status != "running":
+            raise ValueError("only running jobs can heartbeat")
+        if worker is not None and self.worker not in {None, worker}:
+            raise ValueError(f"job is owned by worker {self.worker!r}")
+        return ExecutionJob(
+            self.job_id, self.recording_id, self.stage, self.status,
+            self.attempt, self.artifact_id, worker or self.worker,
+            self.error, now_iso(),
+        )
 
 
 class JobStore:
@@ -43,7 +59,10 @@ class JobStore:
         jobs[stored.job_id] = stored
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        temporary.write_text(json.dumps({key: asdict(value) for key, value in sorted(jobs.items())}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(
+            json.dumps({key: asdict(value) for key, value in sorted(jobs.items())}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         temporary.replace(self.path)
         return stored
 
