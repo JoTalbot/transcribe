@@ -19,7 +19,7 @@ class ScheduleReport:
 
 
 class Scheduler:
-    """Recover stale work, consume results, and dispatch ready recordings."""
+    """Consume results, recover stale work, and dispatch ready recordings."""
 
     def __init__(self, repository: Repository, exchange: FileExchange, policy: RecoveryPolicy | None = None):
         self.repository = repository
@@ -42,9 +42,10 @@ class Scheduler:
         return recovered, failed
 
     def run_once(self, recording_ids: Iterable[str], worker: str = "colab", now=None) -> tuple[ScheduleReport, list[Dispatch]]:
+        """Run one safe cycle: consume results before reclaiming stale work."""
         ids = sorted(set(recording_ids))
-        recovered, failed = self.recover(ids, now=now)
         applied = self.coordinator.apply_results()
+        recovered, failed = self.recover(ids, now=now)
         dispatches: list[Dispatch] = []
         for recording_id in ids:
             dispatches.extend(self.coordinator.dispatch_ready(recording_id, worker=worker))
