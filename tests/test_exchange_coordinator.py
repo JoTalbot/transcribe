@@ -60,6 +60,60 @@ def test_cycle_applies_result_then_dispatches_newly_ready_job(tmp_path: Path):
     assert repository.get_job(normalize_id).status == "running"
 
 
+def test_apply_results_quarantines_malformed_result_and_keeps_valid_result(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-4", "/audio/four.wav"))
+    valid_id = stable_job_id("rec-4", "ingest")
+    repository.put_job(ExecutionJob(valid_id, "rec-4", "ingest", "running", attempt=1))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_result(ResultEnvelope(valid_id, "completed", artifact_id="rec-4:ingest:json"))
+    broken = exchange.results / "broken.json"
+    broken.write_text("not json", encoding="utf-8")
+
+    changed = ExchangeCoordinator(repository, exchange).apply_results()
+
+    assert changed == 1
+    assert repository.get_job(valid_id).status == "completed"
+    assert not broken.exists()
+    assert (exchange.results / "quarantine" / "broken.json").exists()
+    assert (exchange.results / "quarantine" / "broken.json.error").read_text(encoding="utf-8").strip()
+
+
+def test_apply_results_quarantines_unknown_job_without_blocking_known_job(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-5", "/audio/five.wav"))
+    known_id = stable_job_id("rec-5", "ingest")
+    repository.put_job(ExecutionJob(known_id, "rec-5", "ingest", "running", attempt=1))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_result(ResultEnvelope("unknown-job", "completed", artifact_id="orphan:json"))
+    exchange.put_result(ResultEnvelope(known_id, "completed", artifact_id="rec-5:ingest:json"))
+
+    changed = ExchangeCoordinator(repository, exchange).apply_results()
+
+    assert changed == 1
+    assert repository.get_job(known_id).status == "completed"
+    assert (exchange.results / "quarantine" / "unknown-job.json").exists()
+    assert not (exchange.results / "unknown-job.json").exists()
+
+
+def test_apply_results_quarantines_conflicting_result(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-6", "/audio/six.wav"))
+    job_id = stable_job_id("rec-6", "ingest")
+    repository.put_job(ExecutionJob(job_id, "rec-6", "ingest", "completed", artifact_id="artifact-a"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_result(ResultEnvelope(job_id, "completed", artifact_id="artifact-b"))
+
+    changed = ExchangeCoordinator(repository, exchange).apply_results()
+
+    assert changed == 0
+    assert repository.get_job(job_id).artifact_id == "artifact-a"
+    assert (exchange.results / "quarantine" / f"{job_id}.json").exists()
+
+
 def test_ready_jobs_is_deterministic_and_ignores_running_jobs():
     jobs = [
         ExecutionJob("b", "rec", "normalize"),
