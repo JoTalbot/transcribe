@@ -18,6 +18,7 @@ def test_completed_result_is_applied_once() -> None:
     assert apply_result(repository, result) is False
     assert repository.get_job("job-1").status == "completed"
     assert repository.get_job("job-1").artifact_id == "artifact-1"
+    assert repository.get_job("job-1").updated_at is not None
 
 
 def test_failed_result_is_applied() -> None:
@@ -28,6 +29,7 @@ def test_failed_result_is_applied() -> None:
     job = repository.get_job("job-1")
     assert job.status == "failed"
     assert job.error == "worker error"
+    assert job.updated_at is not None
 
 
 def test_completed_result_requires_artifact() -> None:

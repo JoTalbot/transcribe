@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .exchange import ResultEnvelope
+from .job_store import now_iso
 from .repository import Repository
 
 
@@ -35,7 +36,7 @@ def apply_result(repository: Repository, result: ResultEnvelope) -> bool:
         result.artifact_id,
         job.worker,
         result.error,
-        job.updated_at,
+        now_iso(),
     )
     repository.update_job(updated)
     return True
