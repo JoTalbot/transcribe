@@ -43,6 +43,25 @@ def test_scheduler_applies_result_then_dispatches_next_stage(tmp_path: Path):
     assert request.input_path is None
 
 
+def test_scheduler_result_wins_over_stale_recovery(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-1", "/input/audio.wav"))
+    stale = datetime(2026, 9, 13, 14, 0, tzinfo=timezone.utc).isoformat()
+    job_id = stable_job_id("rec-1", "ingest")
+    repository.put_job(ExecutionJob(job_id, "rec-1", "ingest", "running", 1, updated_at=stale))
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_result(ResultEnvelope(job_id, "completed", artifact_id="rec-1:ingest:json"))
+    scheduler = Scheduler(repository, exchange)
+
+    report, dispatches = scheduler.run_once(["rec-1"], now=datetime(2026, 9, 13, 16, 0, tzinfo=timezone.utc))
+
+    assert report.results_applied == 1
+    assert report.recovered == 0
+    assert report.failed == 0
+    assert dispatches == []
+    assert repository.get_job(job_id).status == "completed"
+
+
 def test_scheduler_recovers_stale_job(tmp_path: Path):
     repository = InMemoryRepository()
     repository.put_recording(Recording("rec-1", "/input/audio.wav"))
