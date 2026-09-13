@@ -26,8 +26,19 @@ class ExchangeCoordinator:
         self.repository = repository
         self.exchange = exchange
 
+    def _exchange_has_job(self, job_id: str) -> bool:
+        """Return whether a request, processing claim, or result already exists."""
+        return any(
+            path.exists()
+            for path in (
+                self.exchange.requests / f"{job_id}.json",
+                self.exchange.results / f"{job_id}.json",
+                self.exchange.root / "processing" / f"{job_id}.json",
+            )
+        )
+
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
-        """Publish ready queued/retry jobs and persist their running state."""
+        """Publish ready queued/retry jobs without double-dispatching in-flight work."""
         recording = self.repository.get_recording(recording_id)
         if recording is None:
             raise KeyError(f"unknown recording: {recording_id}")
@@ -46,6 +57,8 @@ class ExchangeCoordinator:
             required = dependencies(job.stage)
             if not all(stage in completed for stage in required):
                 continue
+            if self._exchange_has_job(job.job_id):
+                continue
 
             input_artifact_id = completed[required[0]] if required else None
             running = job.next_attempt(worker)
@@ -61,6 +74,14 @@ class ExchangeCoordinator:
             dispatches.append(Dispatch(running.job_id, str(path)))
 
         return dispatches
+
+    def heartbeat(self, job_id: str, worker: str | None = None) -> ExecutionJob:
+        """Refresh a running job lease while preserving attempt and ownership."""
+        job = self.repository.get_job(job_id)
+        if job is None:
+            raise KeyError(f"unknown job: {job_id}")
+        refreshed = job.heartbeat(worker)
+        return self.repository.update_job(refreshed)
 
     def quarantine_result(self, path: Path, reason: str) -> Path:
         """Move a bad result aside so one poisoned envelope cannot block the queue."""
