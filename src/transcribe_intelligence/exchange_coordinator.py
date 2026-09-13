@@ -32,7 +32,6 @@ class ExchangeCoordinator:
             raise KeyError(f"unknown recording: {recording_id}")
 
         jobs = self.repository.list_jobs(recording_id)
-        by_stage = {job.stage: job for job in jobs}
         completed = {
             job.stage: job.artifact_id
             for job in jobs
