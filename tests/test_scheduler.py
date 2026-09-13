@@ -11,7 +11,7 @@ def test_scheduler_dispatches_multiple_recordings_deterministically(tmp_path: Pa
     repository = InMemoryRepository()
     for recording_id in ("rec-b", "rec-a"):
         repository.put_recording(Recording(recording_id, f"/input/{recording_id}.wav"))
-        repository.put_job(ExecutionJob(stable_job_id(recording_id, "asr"), recording_id, "asr"))
+        repository.put_job(ExecutionJob(stable_job_id(recording_id, "ingest"), recording_id, "ingest"))
 
     scheduler = Scheduler(repository, FileExchange(tmp_path / "exchange"))
     report, dispatches = scheduler.run_once(["rec-b", "rec-a"], worker="colab-1")
@@ -19,9 +19,9 @@ def test_scheduler_dispatches_multiple_recordings_deterministically(tmp_path: Pa
     assert report.recovered == 0
     assert report.failed == 0
     assert report.results_applied == 0
-    assert [item.job_id for item in dispatches] == ["rec-a:asr", "rec-b:asr"]
-    assert repository.get_job("rec-a:asr").status == "running"
-    assert repository.get_job("rec-a:asr").worker == "colab-1"
+    assert [item.job_id for item in dispatches] == ["rec-a:ingest", "rec-b:ingest"]
+    assert repository.get_job("rec-a:ingest").status == "running"
+    assert repository.get_job("rec-a:ingest").worker == "colab-1"
 
 
 def test_scheduler_applies_result_then_dispatches_next_stage(tmp_path: Path):
