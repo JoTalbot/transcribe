@@ -18,24 +18,29 @@ class ExecutionJob:
     worker: str | None = None
     error: str | None = None
     updated_at: str | None = None
+    lease_id: str | None = None
+    lease_until: str | None = None
+    heartbeat_at: str | None = None
 
     def next_attempt(self, worker: str | None = None) -> "ExecutionJob":
         return ExecutionJob(
             self.job_id, self.recording_id, self.stage, "running",
             self.attempt + 1, self.artifact_id, worker or self.worker,
-            None, now_iso(),
+            None, now_iso(), None, None, None,
         )
 
     def heartbeat(self, worker: str | None = None) -> "ExecutionJob":
-        """Refresh the lease timestamp without changing attempt ownership."""
+        """Refresh the local heartbeat without changing lease ownership."""
         if self.status != "running":
             raise ValueError("only running jobs can heartbeat")
         if worker is not None and self.worker not in {None, worker}:
             raise ValueError(f"job is owned by worker {self.worker!r}")
+        heartbeat_at = now_iso()
         return ExecutionJob(
             self.job_id, self.recording_id, self.stage, self.status,
             self.attempt, self.artifact_id, worker or self.worker,
-            self.error, now_iso(),
+            self.error, heartbeat_at, self.lease_id, self.lease_until,
+            heartbeat_at,
         )
 
 
