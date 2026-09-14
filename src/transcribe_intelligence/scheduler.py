@@ -28,6 +28,10 @@ class Scheduler:
         self.coordinator = ExchangeCoordinator(repository, exchange)
 
     def recover(self, recording_ids: Iterable[str], now=None) -> tuple[int, int]:
+        """Recover stale work through the DB lease boundary when available."""
+        recover_stale = getattr(self.repository, "recover_stale", None)
+        if callable(recover_stale) and now is None:
+            return recover_stale(self.policy.max_attempts)
         recovered = failed = 0
         for recording_id in sorted(set(recording_ids)):
             for job in self.repository.list_jobs(recording_id):
