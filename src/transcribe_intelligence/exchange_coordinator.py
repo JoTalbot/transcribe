@@ -37,6 +37,13 @@ class ExchangeCoordinator:
             )
         )
 
+    def _claim(self, job: ExecutionJob, worker: str) -> ExecutionJob | None:
+        """Claim a ready job atomically when the repository provides DB leases."""
+        claim_job = getattr(self.repository, "claim_job", None)
+        if callable(claim_job):
+            return claim_job(job.job_id, worker)
+        return self.repository.update_job(job.next_attempt(worker))
+
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
         """Publish ready queued/retry jobs without double-dispatching in-flight work."""
         recording = self.repository.get_recording(recording_id)
@@ -60,9 +67,11 @@ class ExchangeCoordinator:
             if self._exchange_has_job(job.job_id):
                 continue
 
+            running = self._claim(job, worker)
+            if running is None:
+                # Another scheduler won the race after our readiness snapshot.
+                continue
             input_artifact_id = completed[required[0]] if required else None
-            running = job.next_attempt(worker)
-            self.repository.update_job(running)
             request = JobEnvelope(
                 job_id=running.job_id,
                 recording_id=running.recording_id,
@@ -80,6 +89,11 @@ class ExchangeCoordinator:
         job = self.repository.get_job(job_id)
         if job is None:
             raise KeyError(f"unknown job: {job_id}")
+        heartbeat = getattr(self.repository, "heartbeat", None)
+        if callable(heartbeat):
+            if not worker or not job.lease_id:
+                raise ValueError("worker and persisted lease_id are required")
+            return heartbeat(job_id, worker, job.lease_id)
         refreshed = job.heartbeat(worker)
         return self.repository.update_job(refreshed)
 
