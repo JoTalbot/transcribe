@@ -7,8 +7,8 @@ from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnv
 
 def test_request_and_result_round_trip(tmp_path: Path) -> None:
     exchange = FileExchange(tmp_path / "exchange")
-    request = JobEnvelope("r1:asr", "r1", "asr", "normalized:r1")
-    result = ResultEnvelope("r1:asr", "completed", artifact_id="asr:r1")
+    request = JobEnvelope("r1:asr", "r1", "asr", "normalized:r1", worker="colab-1", lease_id="lease-1")
+    result = ResultEnvelope("r1:asr", "completed", artifact_id="asr:r1", worker="colab-1", lease_id="lease-1")
 
     exchange.put_request(request)
     exchange.put_result(result)
@@ -21,7 +21,13 @@ def test_request_and_result_round_trip(tmp_path: Path) -> None:
 def test_result_requires_artifact_when_completed(tmp_path: Path) -> None:
     exchange = FileExchange(tmp_path / "exchange")
     with pytest.raises(ValueError):
-        exchange.put_result(ResultEnvelope("r1:asr", "completed"))
+        exchange.put_result(ResultEnvelope("r1:asr", "completed", worker="colab-1", lease_id="lease-1"))
+
+
+def test_result_requires_lease_identity(tmp_path: Path) -> None:
+    exchange = FileExchange(tmp_path / "exchange")
+    with pytest.raises(ValueError, match="worker and lease_id"):
+        exchange.put_result(ResultEnvelope("r1:asr", "failed", error="boom"))
 
 
 def test_request_id_mismatch_is_rejected(tmp_path: Path) -> None:
@@ -31,3 +37,10 @@ def test_request_id_mismatch_is_rejected(tmp_path: Path) -> None:
     path.write_text('{"job_id":"other","recording_id":"r1","stage":"asr"}\n', encoding="utf-8")
     with pytest.raises(ExchangeError, match="id mismatch"):
         exchange.get_request("claimed")
+
+
+def test_request_requires_lease_identity_when_reading_claim(tmp_path: Path) -> None:
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_request(JobEnvelope("r1:asr", "r1", "asr"))
+    with pytest.raises(ExchangeError, match="worker or lease_id"):
+        exchange.get_request("r1:asr")
