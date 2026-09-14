@@ -13,7 +13,7 @@ build_manifest.py  ---> recording_id + exact relative path + SHA-256
     v
 Oracle / orchestrator
     |
-    +--> resumable state + stable jobs
+    +--> PostgreSQL canonical state + stable jobs
     |
     +--> submit_exchange_jobs.py ---> Drive/exchange/jobs/*.json
                                       |
@@ -30,7 +30,7 @@ Oracle / orchestrator
 
 The manifest path is the source of truth for locating audio. A `recording_id` is derived from the relative path, so the worker must not assume that the ID is the original filename. Exchange envelopes therefore carry the exact `input_path`.
 
-The orchestration layer keeps the logical stages resumable and idempotent. The current Colab inference adapter performs the GPU-heavy ASR/diarization operation; the broader 24-stage intelligence roadmap remains a target architecture rather than a claim that every stage is already implemented.
+The orchestration layer keeps the logical stages resumable and idempotent. PostgreSQL is the canonical execution state; local JSON job state is not used by the production queue path. The current Colab inference adapter performs the GPU-heavy ASR/diarization operation; the broader 24-stage intelligence roadmap remains a target architecture rather than a claim that every stage is already implemented.
 
 ### 5-minute setup
 
@@ -50,16 +50,28 @@ For optional server-side Drive queue checks, add `GDRIVE_CREDENTIALS` containing
 
 ## Exchange queue
 
-After building a manifest and creating local execution jobs, materialize those jobs for the Colab worker with:
+First seed the canonical PostgreSQL queue from the manifest:
+
+```bash
+export TRANSCRIBE_DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/transcribe'
+python scripts/run_pipeline.py --manifest state/manifest.json
+```
+
+For a dry planning/inspection run without dispatching workers:
+
+```bash
+python scripts/run_pipeline.py --manifest state/manifest.json --plan-only
+```
+
+Then dispatch ready jobs for the Colab worker:
 
 ```bash
 python scripts/submit_exchange_jobs.py \
   --manifest state/manifest.json \
-  --jobs state/jobs.json \
   --exchange /path/to/transcribe/exchange
 ```
 
-The command reads `recording_id -> path` from the manifest and writes an exchange `JobEnvelope` containing the exact relative `input_path`. It skips jobs that are already running or completed, so repeated submission is safe.
+The seeding command creates missing recordings and stable stage jobs in PostgreSQL and never overwrites an existing execution job. It also rejects a manifest path that conflicts with canonical database state. The dispatch command validates manifest paths against PostgreSQL and uses lease-aware scheduling, so repeated submission is safe.
 
 The Colab exchange worker watches `exchange/jobs`, claims requests into `processing`, runs GPU inference, writes `exchange/results`, and removes the processing marker after completion or failure.
 
