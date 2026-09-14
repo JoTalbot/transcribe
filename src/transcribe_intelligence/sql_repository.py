@@ -28,7 +28,7 @@ class SqlRepository(Repository):
         self.connection = connection
 
     def put_recording(self, recording: Recording) -> Recording:
-        self._execute("""INSERT INTO recordings (recording_id, input_path, status) VALUES (%s, %s, %s) ON CONFLICT (recording_id) DO NOTHING""", (recording.recording_id, recording.input_path, recording.status))
+        self._execute("INSERT INTO recordings (recording_id, input_path, status) VALUES (%s, %s, %s) ON CONFLICT (recording_id) DO NOTHING", (recording.recording_id, recording.input_path, recording.status))
         return self.get_recording(recording.recording_id) or recording
 
     def get_recording(self, recording_id: str) -> Recording | None:
@@ -36,7 +36,7 @@ class SqlRepository(Repository):
         return Recording(row[0], row[1], row[2]) if row else None
 
     def put_job(self, job: ExecutionJob) -> ExecutionJob:
-        self._execute("""INSERT INTO execution_jobs (job_id, recording_id, stage, status, attempt, artifact_id, worker, error, updated_at, lease_id, lease_until, heartbeat_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (job_id) DO NOTHING""", (job.job_id, job.recording_id, job.stage, job.status, job.attempt, job.artifact_id, job.worker, job.error, job.updated_at, job.lease_id, job.lease_until, job.heartbeat_at))
+        self._execute("INSERT INTO execution_jobs (job_id, recording_id, stage, status, attempt, artifact_id, worker, error, updated_at, lease_id, lease_until, heartbeat_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (job_id) DO NOTHING", (job.job_id, job.recording_id, job.stage, job.status, job.attempt, job.artifact_id, job.worker, job.error, job.updated_at, job.lease_id, job.lease_until, job.heartbeat_at))
         stored = self.get_job(job.job_id)
         if stored is None:
             raise RuntimeError(f"job insert failed: {job.job_id}")
@@ -51,7 +51,7 @@ class SqlRepository(Repository):
         return [self._job(row) for row in rows]
 
     def update_job(self, job: ExecutionJob) -> ExecutionJob:
-        self._execute("""UPDATE execution_jobs SET recording_id = %s, stage = %s, status = %s, attempt = %s, artifact_id = %s, worker = %s, error = %s, updated_at = %s, lease_id = %s, lease_until = %s, heartbeat_at = %s WHERE job_id = %s""", (job.recording_id, job.stage, job.status, job.attempt, job.artifact_id, job.worker, job.error, job.updated_at, job.lease_id, job.lease_until, job.heartbeat_at, job.job_id))
+        self._execute("UPDATE execution_jobs SET recording_id = %s, stage = %s, status = %s, attempt = %s, artifact_id = %s, worker = %s, error = %s, updated_at = %s, lease_id = %s, lease_until = %s, heartbeat_at = %s WHERE job_id = %s", (job.recording_id, job.stage, job.status, job.attempt, job.artifact_id, job.worker, job.error, job.updated_at, job.lease_id, job.lease_until, job.heartbeat_at, job.job_id))
         stored = self.get_job(job.job_id)
         if stored is None:
             raise KeyError(f"unknown job: {job.job_id}")
@@ -100,11 +100,15 @@ class SqlRepository(Repository):
     def recover_stale(self, max_attempts: int = 3) -> tuple[int, int]:
         if max_attempts < 1:
             raise ValueError("max_attempts must be positive")
-        rows = self._query_all(RECOVER_STALE_SQL, (max_attempts, max_attempts))
-        self.connection.commit()
-        recovered = sum(row[1] == "retry" for row in rows)
-        failed = sum(row[1] == "failed" for row in rows)
-        return recovered, failed
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(RECOVER_STALE_SQL, (max_attempts, max_attempts))
+            rows = cursor.fetchall()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return sum(row[1] == "retry" for row in rows), sum(row[1] == "failed" for row in rows)
 
     def refresh_recording_status(self, recording_id: str) -> Recording | None:
         recording = self.get_recording(recording_id)
@@ -131,7 +135,8 @@ class SqlRepository(Repository):
 
     def _execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> None:
         try:
-            self.connection.cursor().execute(sql, parameters)
+            cursor = self.connection.cursor()
+            cursor.execute(sql, parameters)
             self.connection.commit()
         except Exception:
             self.connection.rollback()
@@ -139,8 +144,9 @@ class SqlRepository(Repository):
 
     def _query_one(self, sql: str, parameters: tuple[Any, ...]) -> tuple[Any, ...] | None:
         try:
-            self.connection.cursor().execute(sql, parameters)
-            return self.connection.cursor().fetchone()
+            cursor = self.connection.cursor()
+            cursor.execute(sql, parameters)
+            return cursor.fetchone()
         except Exception:
             self.connection.rollback()
             raise
