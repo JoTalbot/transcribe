@@ -45,6 +45,16 @@ def _seed(repo: SqlRepository, job_id: str = "r:asr") -> None:
     repo.put_job(ExecutionJob(job_id, "r", "asr"))
 
 
+def _wait_for_reclaim(repo: SqlRepository, job_id: str, worker: str, timeout: float = 5.0) -> ExecutionJob:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        claimed = repo.claim_job(job_id, worker, lease_seconds=30)
+        if claimed is not None:
+            return claimed
+        time.sleep(0.05)
+    raise AssertionError(f"job {job_id} was not reclaimed within {timeout:.1f}s")
+
+
 def test_two_workers_cannot_claim_the_same_job(postgres_database) -> None:
     repo = _repository(postgres_database)
     _seed(repo)
@@ -73,10 +83,14 @@ def test_two_workers_cannot_claim_the_same_job(postgres_database) -> None:
 
     assert not errors
     assert sorted(item[1] is not None for item in results) == [False, True]
-    claimed = _repository(postgres_database).get_job("r:asr")
-    assert claimed is not None
-    assert claimed.status == "running"
-    assert claimed.attempt == 1
+    claimed_repo = _repository(postgres_database)
+    try:
+        claimed = claimed_repo.get_job("r:asr")
+        assert claimed is not None
+        assert claimed.status == "running"
+        assert claimed.attempt == 1
+    finally:
+        claimed_repo.connection.close()
 
 
 def test_reclaimed_lease_rejects_stale_worker_completion(postgres_database) -> None:
@@ -86,18 +100,39 @@ def test_reclaimed_lease_rejects_stale_worker_completion(postgres_database) -> N
     assert claimed_a is not None and claimed_a.lease_id
     first.connection.close()
 
-    time.sleep(1.2)
     second = _repository(postgres_database)
-    claimed_b = second.claim_job("r:asr", "worker-b", lease_seconds=30)
-    assert claimed_b is not None and claimed_b.lease_id != claimed_a.lease_id
+    try:
+        claimed_b = _wait_for_reclaim(second, "r:asr", "worker-b")
+        assert claimed_b.lease_id != claimed_a.lease_id
 
-    with pytest.raises(RuntimeError, match="lease completion rejected"):
-        second.complete("r:asr", "worker-a", claimed_a.lease_id, "stale-artifact")
+        with pytest.raises(RuntimeError, match="lease completion rejected"):
+            second.complete("r:asr", "worker-a", claimed_a.lease_id, "stale-artifact")
 
-    done = second.complete("r:asr", "worker-b", claimed_b.lease_id, "fresh-artifact")
-    assert done.status == "completed"
-    assert done.artifact_id == "fresh-artifact"
-    second.connection.close()
+        done = second.complete("r:asr", "worker-b", claimed_b.lease_id, "fresh-artifact")
+        assert done.status == "completed"
+        assert done.artifact_id == "fresh-artifact"
+    finally:
+        second.connection.close()
+
+
+def test_heartbeat_extends_only_the_current_lease(postgres_database) -> None:
+    repo = _repository(postgres_database)
+    _seed(repo)
+    claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
+    assert claimed is not None and claimed.lease_id
+    try:
+        refreshed = repo.heartbeat("r:asr", "worker-a", claimed.lease_id, lease_seconds=30)
+        assert refreshed.status == "running"
+        assert refreshed.lease_id == claimed.lease_id
+        assert refreshed.worker == "worker-a"
+
+        with pytest.raises(RuntimeError, match="lease heartbeat rejected"):
+            repo.heartbeat("r:asr", "worker-b", claimed.lease_id, lease_seconds=30)
+
+        with pytest.raises(RuntimeError, match="lease heartbeat rejected"):
+            repo.heartbeat("r:asr", "worker-a", "wrong-lease", lease_seconds=30)
+    finally:
+        repo.connection.close()
 
 
 def test_expired_lease_is_recovered_to_retry(postgres_database) -> None:
@@ -107,12 +142,47 @@ def test_expired_lease_is_recovered_to_retry(postgres_database) -> None:
     assert claimed is not None
     repo.connection.close()
 
-    time.sleep(1.2)
     recovery = _repository(postgres_database)
-    assert recovery.recover_stale(max_attempts=3) == (1, 0)
-    recovered = recovery.get_job("r:asr")
-    assert recovered is not None
-    assert recovered.status == "retry"
-    assert recovered.worker is None
-    assert recovered.lease_id is None
-    recovery.connection.close()
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if recovery.recover_stale(max_attempts=3) == (1, 0):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("expired lease was not recovered within 5.0s")
+
+        recovered = recovery.get_job("r:asr")
+        assert recovered is not None
+        assert recovered.status == "retry"
+        assert recovered.worker is None
+        assert recovered.lease_id is None
+    finally:
+        recovery.connection.close()
+
+
+def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
+    repo = _repository(postgres_database)
+    _seed(repo)
+    claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
+    assert claimed is not None
+    repo.connection.close()
+
+    recovery = _repository(postgres_database)
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if recovery.recover_stale(max_attempts=1) == (0, 1):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("expired final attempt was not failed within 5.0s")
+
+        failed = recovery.get_job("r:asr")
+        assert failed is not None
+        assert failed.status == "failed"
+        assert failed.worker is None
+        assert failed.lease_id is None
+        assert failed.error
+    finally:
+        recovery.connection.close()
