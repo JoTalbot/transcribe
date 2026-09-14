@@ -20,6 +20,7 @@
 - Scheduler для DB-backed repository не может случайно перейти на небезопасный legacy recovery path из-за переданного тестового `now`.
 - Colab worker не оставляет malformed claim в `processing`: такой request отправляется в quarantine.
 - Worker tests соответствуют обязательному `worker + lease_id` протоколу.
+- Exchange result application работает через канонический PostgreSQL repository и lease-aware `ExchangeCoordinator`, а не через новый пустой `InMemoryRepository`.
 
 ## Последние исправления
 
@@ -28,6 +29,7 @@
 3. Исправлен scheduler recovery bypass: lease-aware repository всегда использует транзакционный `recover_stale()`.
 4. Исправлен Colab exchange worker: malformed claim после перемещения в `processing` гарантированно уходит в quarantine.
 5. Исправлен production exchange submission: `scripts/submit_exchange_jobs.py` больше не создаёт exchange jobs напрямую из локального `JobStore`. Теперь он требует PostgreSQL, сверяет manifest paths с каноническими записями БД и выполняет dispatch через `Scheduler`/`ExchangeCoordinator` с lease ownership.
+6. Исправлен production result application: `scripts/apply_exchange_results.py` больше не применяет результаты к эфемерному `InMemoryRepository`; теперь он требует `TRANSCRIBE_DATABASE_URL` или `--database-url` и применяет результаты через PostgreSQL lease ownership.
 
 ## CI
 
@@ -38,8 +40,9 @@
 1. Получить успешный полный CI после текущих исправлений.
 2. Если CI найдёт ошибку, исправить её в репозитории и повторить проверку.
 3. Проверить реальные production entrypoints Oracle/Colab и убедиться, что они используют lease-aware coordinator/repository, а не legacy `JobStore` dispatch.
-4. После подтверждения безопасного пути выполнить dry-run без пользовательского production-аудио.
-5. Затем выполнить ограниченный production smoke test.
+4. Отдельно проверить bootstrap `scripts/run_pipeline.py`: он пока использует локальный `JobStore` для построения очереди и должен быть либо переведён на PostgreSQL, либо явно ограничен legacy/local bootstrap режимом.
+5. После подтверждения безопасного пути выполнить dry-run без пользовательского production-аудио.
+6. Затем выполнить ограниченный production smoke test.
 
 ## Ограничение
 
