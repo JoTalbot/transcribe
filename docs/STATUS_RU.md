@@ -21,6 +21,7 @@
 - Colab worker не оставляет malformed claim в `processing`: такой request отправляется в quarantine.
 - Worker tests соответствуют обязательному `worker + lease_id` протоколу.
 - Exchange result application работает через канонический PostgreSQL repository и lease-aware `ExchangeCoordinator`, а не через новый пустой `InMemoryRepository`.
+- Production bootstrap очереди больше не пишет `state/jobs.json`: `scripts/run_pipeline.py` создаёт recordings и stable stage jobs непосредственно в PostgreSQL.
 
 ## Последние исправления
 
@@ -30,6 +31,8 @@
 4. Исправлен Colab exchange worker: malformed claim после перемещения в `processing` гарантированно уходит в quarantine.
 5. Исправлен production exchange submission: `scripts/submit_exchange_jobs.py` больше не создаёт exchange jobs напрямую из локального `JobStore`. Теперь он требует PostgreSQL, сверяет manifest paths с каноническими записями БД и выполняет dispatch через `Scheduler`/`ExchangeCoordinator` с lease ownership.
 6. Исправлен production result application: `scripts/apply_exchange_results.py` больше не применяет результаты к эфемерному `InMemoryRepository`; теперь он требует `TRANSCRIBE_DATABASE_URL` или `--database-url` и применяет результаты через PostgreSQL lease ownership.
+7. Исправлен production bootstrap: `scripts/run_pipeline.py` переведён на PostgreSQL canonical state, добавлена проверка конфликтующего `recording_id -> path`, а создание stage jobs стало идемпотентным через `SqlRepository.put_job`.
+8. README синхронизирован с новым PostgreSQL-only queue bootstrap и убраны устаревшие аргументы `--jobs` из production-команды dispatch.
 
 ## CI
 
@@ -40,7 +43,7 @@
 1. Получить успешный полный CI после текущих исправлений.
 2. Если CI найдёт ошибку, исправить её в репозитории и повторить проверку.
 3. Проверить реальные production entrypoints Oracle/Colab и убедиться, что они используют lease-aware coordinator/repository, а не legacy `JobStore` dispatch.
-4. Отдельно проверить bootstrap `scripts/run_pipeline.py`: он пока использует локальный `JobStore` для построения очереди и должен быть либо переведён на PostgreSQL, либо явно ограничен legacy/local bootstrap режимом.
+4. Проверить, что все оставшиеся вызовы `JobStore` ограничены legacy/local тестовой инфраструктурой и не участвуют в production orchestration.
 5. После подтверждения безопасного пути выполнить dry-run без пользовательского production-аудио.
 6. Затем выполнить ограниченный production smoke test.
 
