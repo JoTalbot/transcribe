@@ -1,3 +1,4 @@
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -83,7 +84,7 @@ def test_true_exchange_pipeline_advances_ingest_normalize_asr(tmp_path: Path):
     dispatches = coordinator.dispatch_ready("rec-e2e", worker="colab")
     assert [item.job_id for item in dispatches] == [jobs[0].job_id]
 
-    for current, next_job in zip(jobs, jobs[1:]):
+    for current, next_job in pairwise(jobs):
         exchange.put_result(ResultEnvelope(current.job_id, "completed", artifact_id=expected[current.stage]))
         dispatches, changed = coordinator.cycle("rec-e2e", worker="colab")
         assert changed == 1
