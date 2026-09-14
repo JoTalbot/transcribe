@@ -17,16 +17,17 @@
 - Просроченный lease переводится в `retry`, а при достижении лимита попыток в `failed`.
 - Integration tests покрывают heartbeat и предельное число попыток.
 - PostgreSQL integration test покрывает полный обмен: dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
-- Scheduler больше не может переводить DB-backed repository на небезопасный legacy recovery path только из-за переданного тестового `now`; lease-aware repository всегда использует транзакционный `recover_stale()`.
-- Colab worker больше не оставляет битый/malformed request в `processing`: такой claim перемещается в quarantine.
-- Worker tests приведены в соответствие с обязательным `worker + lease_id` протоколом.
+- Scheduler для DB-backed repository не может случайно перейти на небезопасный legacy recovery path из-за переданного тестового `now`.
+- Colab worker не оставляет malformed claim в `processing`: такой request отправляется в quarantine.
+- Worker tests соответствуют обязательному `worker + lease_id` протоколу.
 
 ## Последние исправления
 
-1. Убрана зависимость integration tests от фиксированных задержек ожидания истечения lease. Ожидание reclaim/recovery выполняется через bounded polling с монотонным таймером. Временные PostgreSQL-соединения закрываются после проверок.
+1. Убрана зависимость integration tests от фиксированных задержек истечения lease. Ожидание reclaim/recovery выполняется через bounded polling с монотонным таймером. Временные PostgreSQL-соединения закрываются после проверок.
 2. Добавлен PostgreSQL-backed E2E-тест coordinator/exchange: результат старого worker после reclaim не меняет состояние задания и перемещается в quarantine, а результат нового worker с актуальным `lease_id` успешно завершает задание.
-3. Исправлен scheduler recovery bypass: DB-backed repository теперь всегда остаётся на lease-aware транзакционной границе, даже когда вызывающий код передаёт `now` для тестовой детерминированности.
-4. Исправлен Colab exchange worker: malformed claim после перемещения в `processing` теперь гарантированно уходит в `results/quarantine`, вместо того чтобы оставлять зависший processing marker.
+3. Исправлен scheduler recovery bypass: lease-aware repository всегда использует транзакционный `recover_stale()`.
+4. Исправлен Colab exchange worker: malformed claim после перемещения в `processing` гарантированно уходит в quarantine.
+5. Исправлен production exchange submission: `scripts/submit_exchange_jobs.py` больше не создаёт exchange jobs напрямую из локального `JobStore`. Теперь он требует PostgreSQL, сверяет manifest paths с каноническими записями БД и выполняет dispatch через `Scheduler`/`ExchangeCoordinator` с lease ownership.
 
 ## CI
 
