@@ -16,15 +16,17 @@
 - Старый worker не может завершить уже переотданное задание.
 - Просроченный lease переводится в `retry`, а при достижении лимита попыток в `failed`.
 - Integration tests покрывают heartbeat и предельное число попыток.
-- PostgreSQL integration test теперь проходит полный обмен: dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
+- PostgreSQL integration test покрывает полный обмен: dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
+- Scheduler больше не может переводить DB-backed repository на небезопасный legacy recovery path только из-за переданного тестового `now`; lease-aware repository всегда использует транзакционный `recover_stale()`.
+- Colab worker больше не оставляет битый/malformed request в `processing`: такой claim перемещается в quarantine.
+- Worker tests приведены в соответствие с обязательным `worker + lease_id` протоколом.
 
-## Последнее исправление
+## Последние исправления
 
-Убрана зависимость integration tests от фиксированных задержек ожидания истечения lease. Ожидание reclaim/recovery выполняется через bounded polling с монотонным таймером. Также закрываются временные PostgreSQL-соединения после проверок. Это уменьшает флап CI под нагрузкой и исключает утечки соединений.
-
-## Последнее усиление
-
-Добавлен PostgreSQL-backed E2E-тест coordinator/exchange. Он проверяет, что результат старого worker после reclaim не меняет состояние задания и перемещается в quarantine, а результат нового worker с актуальным `lease_id` успешно завершает задание.
+1. Убрана зависимость integration tests от фиксированных задержек ожидания истечения lease. Ожидание reclaim/recovery выполняется через bounded polling с монотонным таймером. Временные PostgreSQL-соединения закрываются после проверок.
+2. Добавлен PostgreSQL-backed E2E-тест coordinator/exchange: результат старого worker после reclaim не меняет состояние задания и перемещается в quarantine, а результат нового worker с актуальным `lease_id` успешно завершает задание.
+3. Исправлен scheduler recovery bypass: DB-backed repository теперь всегда остаётся на lease-aware транзакционной границе, даже когда вызывающий код передаёт `now` для тестовой детерминированности.
+4. Исправлен Colab exchange worker: malformed claim после перемещения в `processing` теперь гарантированно уходит в `results/quarantine`, вместо того чтобы оставлять зависший processing marker.
 
 ## CI
 
@@ -32,10 +34,11 @@
 
 ## Следующий production gate
 
-1. Получить успешный полный CI после текущих integration tests.
+1. Получить успешный полный CI после текущих исправлений.
 2. Если CI найдёт ошибку, исправить её в репозитории и повторить проверку.
-3. После зелёного CI проверить реальный Oracle daemon и Colab exchange worker без пользовательского production-аудио.
-4. Выполнить dry-run, затем ограниченный production smoke test.
+3. Проверить реальные production entrypoints Oracle/Colab и убедиться, что они используют lease-aware coordinator/repository, а не legacy `JobStore` dispatch.
+4. После подтверждения безопасного пути выполнить dry-run без пользовательского production-аудио.
+5. Затем выполнить ограниченный production smoke test.
 
 ## Ограничение
 
