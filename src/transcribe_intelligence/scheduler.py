@@ -28,9 +28,15 @@ class Scheduler:
         self.coordinator = ExchangeCoordinator(repository, exchange)
 
     def recover(self, recording_ids: Iterable[str], now=None) -> tuple[int, int]:
-        """Recover stale work through the DB lease boundary when available."""
+        """Recover stale work through the DB lease boundary when available.
+
+        Lease-aware repositories own the recovery clock and transaction. The
+        optional ``now`` argument remains available for deterministic tests of
+        the legacy/in-memory recovery path, but must not cause a DB-backed
+        scheduler to fall back to non-transactional job updates.
+        """
         recover_stale = getattr(self.repository, "recover_stale", None)
-        if callable(recover_stale) and now is None:
+        if callable(recover_stale):
             return recover_stale(self.policy.max_attempts)
         recovered = failed = 0
         for recording_id in sorted(set(recording_ids)):
