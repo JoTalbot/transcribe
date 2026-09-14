@@ -7,7 +7,10 @@ import time
 
 import pytest
 
+from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
+from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
 from transcribe_intelligence.job_store import ExecutionJob
+from transcribe_intelligence.repository import Recording
 from transcribe_intelligence.sql_repository import SqlRepository
 
 
@@ -39,8 +42,6 @@ def _repository(psycopg) -> SqlRepository:
 
 
 def _seed(repo: SqlRepository, job_id: str = "r:asr") -> None:
-    from transcribe_intelligence.repository import Recording
-
     repo.put_recording(Recording("r", "/audio/r.wav"))
     repo.put_job(ExecutionJob(job_id, "r", "asr"))
 
@@ -53,6 +54,15 @@ def _wait_for_reclaim(repo: SqlRepository, job_id: str, worker: str, timeout: fl
             return claimed
         time.sleep(0.05)
     raise AssertionError(f"job {job_id} was not reclaimed within {timeout:.1f}s")
+
+
+def _wait_for_recovery(repo: SqlRepository, max_attempts: int, expected: tuple[int, int], timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if repo.recover_stale(max_attempts=max_attempts) == expected:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"recovery did not return {expected} within {timeout:.1f}s")
 
 
 def test_two_workers_cannot_claim_the_same_job(postgres_database) -> None:
@@ -144,14 +154,7 @@ def test_expired_lease_is_recovered_to_retry(postgres_database) -> None:
 
     recovery = _repository(postgres_database)
     try:
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            if recovery.recover_stale(max_attempts=3) == (1, 0):
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("expired lease was not recovered within 5.0s")
-
+        _wait_for_recovery(recovery, max_attempts=3, expected=(1, 0))
         recovered = recovery.get_job("r:asr")
         assert recovered is not None
         assert recovered.status == "retry"
@@ -170,14 +173,7 @@ def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
 
     recovery = _repository(postgres_database)
     try:
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            if recovery.recover_stale(max_attempts=1) == (0, 1):
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("expired final attempt was not failed within 5.0s")
-
+        _wait_for_recovery(recovery, max_attempts=1, expected=(0, 1))
         failed = recovery.get_job("r:asr")
         assert failed is not None
         assert failed.status == "failed"
@@ -186,3 +182,32 @@ def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
         assert failed.error
     finally:
         recovery.connection.close()
+
+
+def test_exchange_accepts_current_lease_and_quarantines_reclaimed_worker_result(postgres_database, tmp_path: Path) -> None:
+    repository = _repository(postgres_database)
+    _seed(repository)
+    exchange = FileExchange(tmp_path / "exchange")
+    coordinator = ExchangeCoordinator(repository, exchange)
+
+    first = coordinator.dispatch_ready("r", worker="worker-a")
+    assert len(first) == 1
+    request = exchange.get_request("r:asr")
+    assert request.worker == "worker-a"
+    assert request.lease_id
+    stale_lease = request.lease_id
+    request_path = exchange.requests / "r:asr.json"
+    request_path.unlink()
+
+    reclaimed = _wait_for_reclaim(repository, "r:asr", "worker-b")
+    assert reclaimed.lease_id != stale_lease
+
+    exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="stale", worker="worker-a", lease_id=stale_lease))
+    assert coordinator.apply_results() == 0
+    assert (exchange.results / "quarantine" / "r:asr.json").exists()
+
+    exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="fresh", worker="worker-b", lease_id=reclaimed.lease_id))
+    assert coordinator.apply_results() == 1
+    assert repository.get_job("r:asr").status == "completed"
+    assert repository.get_job("r:asr").artifact_id == "fresh"
+    repository.connection.close()
