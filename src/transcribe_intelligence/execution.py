@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .job_store import ExecutionJob, JobStore
+from .repository import LeaseRepository
 from .worker_protocol import claim, complete, fail
 
 
@@ -35,7 +36,7 @@ class DryRunBackend:
 
 
 def dispatch_one(store: JobStore, job_id: str, backend: ExecutionBackend, worker: str, lease_seconds: int = 900) -> ExecutionJob:
-    """Claim, execute, and finalize one job with retry-safe failure handling."""
+    """Legacy file-store dispatcher with worker ownership checks."""
     job = claim(store, job_id, worker, lease_seconds)
     if job.status == "completed":
         return job
@@ -49,3 +50,43 @@ def dispatch_one(store: JobStore, job_id: str, backend: ExecutionBackend, worker
         return fail(store, job_id, worker, error)
     except Exception as exc:
         return fail(store, job_id, worker, str(exc))
+
+
+def dispatch_one_repository(
+    repository: LeaseRepository,
+    job_id: str,
+    backend: ExecutionBackend,
+    worker: str,
+    lease_seconds: int = 900,
+) -> ExecutionJob:
+    """Claim, execute, and finalize one job through the transactional lease API.
+
+    This is the production path for PostgreSQL-backed orchestration. The lease
+    identity returned by claim_job is retained through completion/failure, so a
+    stale worker cannot finalize a job after another worker has reclaimed it.
+    """
+    job = repository.claim_job(job_id, worker, lease_seconds)
+    if job is None:
+        current = getattr(repository, "get_job")(job_id)
+        if current is None:
+            raise KeyError(job_id)
+        if current.status == "completed":
+            return current
+        raise RuntimeError(f"job {job_id} could not be claimed")
+    if not job.lease_id:
+        raise RuntimeError(f"job {job_id} was claimed without a lease_id")
+
+    try:
+        result = backend.execute(job)
+        if result.job_id != job.job_id:
+            raise RuntimeError("backend returned a different job_id")
+        if result.status == "completed" and result.artifact_id:
+            return repository.complete(job.job_id, worker, job.lease_id, result.artifact_id)
+        return repository.fail(job.job_id, worker, job.lease_id, result.error or "backend did not complete the job")
+    except Exception as exc:
+        try:
+            return repository.fail(job.job_id, worker, job.lease_id, str(exc))
+        except RuntimeError:
+            # The lease may have expired while the backend was running. Do not
+            # overwrite a newer worker's state; the scheduler will recover it.
+            raise exc
