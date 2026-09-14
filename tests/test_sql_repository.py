@@ -70,13 +70,26 @@ def test_sql_repository_round_trip_and_aggregate_status():
 
     completed = ExecutionJob(
         job.job_id, job.recording_id, job.stage, "completed", 1,
-        "artifact-1", "worker-1", None, "2026-09-13T10:00:00+00:00"
+        "artifact-1", "worker-1", None, "2026-09-13T10:00:00+00:00",
+        None, None, "2026-09-13T10:00:00+00:00",
     )
     repo.update_job(completed)
     refreshed = repo.refresh_recording_status("r1")
     assert refreshed is not None
     assert refreshed.status == "completed"
     assert repo.list_jobs("r1") == [completed]
+
+
+def test_sql_repository_round_trips_lease_fields():
+    repo = SqlRepository(FakeConnection())
+    job = ExecutionJob(
+        "r1:asr", "r1", "asr", "running", 2, None, "worker-a", None,
+        "2026-09-14T10:00:00+00:00", "lease-123",
+        "2026-09-14T10:30:00+00:00", "2026-09-14T10:00:00+00:00",
+    )
+    assert repo.put_job(job) == job
+    assert repo.get_job(job.job_id) == job
+    assert repo.list_jobs("r1") == [job]
 
 
 def test_sql_repository_missing_job_update_raises():
