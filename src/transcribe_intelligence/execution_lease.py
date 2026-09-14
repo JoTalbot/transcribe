@@ -54,6 +54,24 @@ RETURNING j.job_id, j.recording_id, j.stage, j.status, j.attempt,
           j.lease_id, j.lease_until, j.heartbeat_at
 """
 
+CLAIM_JOB_SQL = """
+UPDATE execution_jobs
+SET status = 'running',
+    attempt = attempt + 1,
+    worker = %s,
+    lease_id = %s,
+    lease_until = NOW() + (%s * INTERVAL '1 second'),
+    heartbeat_at = NOW(),
+    error = NULL,
+    updated_at = NOW()
+WHERE job_id = %s
+  AND status IN ('queued', 'retry')
+  AND (lease_until IS NULL OR lease_until <= NOW())
+RETURNING job_id, recording_id, stage, status, attempt,
+          artifact_id, worker, error, updated_at,
+          lease_id, lease_until, heartbeat_at
+"""
+
 HEARTBEAT_SQL = """
 UPDATE execution_jobs
 SET lease_until = NOW() + (%s * INTERVAL '1 second'),
