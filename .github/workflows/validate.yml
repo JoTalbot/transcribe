@@ -8,6 +8,22 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: transcribe
+          POSTGRES_PASSWORD: transcribe
+          POSTGRES_DB: transcribe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U transcribe -d transcribe_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TRANSCRIBE_TEST_DATABASE_URL: postgresql://transcribe:transcribe@127.0.0.1:5432/transcribe_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
