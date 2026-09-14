@@ -27,6 +27,21 @@ class FakeCursor:
             self.connection.recordings.setdefault(parameters[0], parameters)
         elif operation.startswith("INSERT INTO execution_jobs"):
             self.connection.jobs.setdefault(parameters[0], parameters)
+        elif "RETURNING job_id, recording_id, stage" in operation and "SET status = 'running'" in operation:
+            job_id = parameters[-1]
+            row = self.connection.jobs.get(job_id)
+            if row is None or row[3] not in {"queued", "retry"}:
+                self.rows = []
+            else:
+                updated = list(row)
+                updated[3] = "running"
+                updated[4] += 1
+                updated[6] = parameters[0]
+                updated[9] = parameters[1]
+                updated[10] = "2026-09-14T10:30:00+00:00"
+                updated[11] = "2026-09-14T10:00:00+00:00"
+                self.connection.jobs[job_id] = tuple(updated)
+                self.rows = [self.connection.jobs[job_id]]
         elif operation.startswith("UPDATE execution_jobs"):
             job_id = parameters[-1]
             if job_id in self.connection.jobs:
@@ -90,6 +105,24 @@ def test_sql_repository_round_trips_lease_fields():
     assert repo.put_job(job) == job
     assert repo.get_job(job.job_id) == job
     assert repo.list_jobs("r1") == [job]
+
+
+def test_sql_repository_claim_job_persists_unique_lease_state():
+    repo = SqlRepository(FakeConnection())
+    job = ExecutionJob("r1:asr", "r1", "asr")
+    repo.put_job(job)
+
+    claimed = repo.claim_job(job.job_id, "worker-a", lease_seconds=600)
+
+    assert claimed is not None
+    assert claimed.status == "running"
+    assert claimed.attempt == 1
+    assert claimed.worker == "worker-a"
+    assert claimed.lease_id
+    assert claimed.lease_until
+    assert claimed.heartbeat_at
+
+    assert repo.claim_job(job.job_id, "worker-b") is None
 
 
 def test_sql_repository_missing_job_update_raises():
