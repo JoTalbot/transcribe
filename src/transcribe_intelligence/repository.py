@@ -18,16 +18,21 @@ class Repository(Protocol):
     """Canonical persistence boundary for API and orchestration layers."""
 
     def put_recording(self, recording: Recording) -> Recording: ...
-
     def get_recording(self, recording_id: str) -> Recording | None: ...
-
     def put_job(self, job: ExecutionJob) -> ExecutionJob: ...
-
     def get_job(self, job_id: str) -> ExecutionJob | None: ...
-
     def list_jobs(self, recording_id: str) -> list[ExecutionJob]: ...
-
     def update_job(self, job: ExecutionJob) -> ExecutionJob: ...
+
+
+class LeaseRepository(Protocol):
+    """Optional transactional ownership API used by concurrent schedulers."""
+
+    def claim_job(self, job_id: str, worker: str, lease_seconds: int = 900) -> ExecutionJob | None: ...
+    def heartbeat(self, job_id: str, worker: str, lease_id: str, lease_seconds: int = 900) -> ExecutionJob: ...
+    def complete(self, job_id: str, worker: str, lease_id: str, artifact_id: str) -> ExecutionJob: ...
+    def fail(self, job_id: str, worker: str, lease_id: str, error: str) -> ExecutionJob: ...
+    def recover_stale(self, max_attempts: int = 3) -> tuple[int, int]: ...
 
 
 class InMemoryRepository:
@@ -66,10 +71,7 @@ class InMemoryRepository:
         return job
 
     def list_jobs(self, recording_id: str) -> list[ExecutionJob]:
-        return sorted(
-            (job for job in self._jobs.values() if job.recording_id == recording_id),
-            key=lambda job: (job.stage, job.job_id),
-        )
+        return sorted((job for job in self._jobs.values() if job.recording_id == recording_id), key=lambda job: (job.stage, job.job_id))
 
     def _refresh_recording_status(self, recording_id: str) -> None:
         recording = self._recordings.get(recording_id)
@@ -87,6 +89,4 @@ class InMemoryRepository:
             status = "running"
         else:
             status = "queued"
-        self._recordings[recording_id] = Recording(
-            recording.recording_id, recording.input_path, status
-        )
+        self._recordings[recording_id] = Recording(recording.recording_id, recording.input_path, status)
