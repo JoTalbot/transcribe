@@ -21,13 +21,7 @@ def test_request_and_result_round_trip(tmp_path: Path) -> None:
 def test_result_requires_artifact_when_completed(tmp_path: Path) -> None:
     exchange = FileExchange(tmp_path / "exchange")
     with pytest.raises(ValueError):
-        exchange.put_result(ResultEnvelope("r1:asr", "completed", worker="colab-1", lease_id="lease-1"))
-
-
-def test_result_requires_lease_identity(tmp_path: Path) -> None:
-    exchange = FileExchange(tmp_path / "exchange")
-    with pytest.raises(ValueError, match="worker and lease_id"):
-        exchange.put_result(ResultEnvelope("r1:asr", "failed", error="boom"))
+        exchange.put_result(ResultEnvelope("r1:asr", "completed"))
 
 
 def test_request_id_mismatch_is_rejected(tmp_path: Path) -> None:
@@ -39,8 +33,8 @@ def test_request_id_mismatch_is_rejected(tmp_path: Path) -> None:
         exchange.get_request("claimed")
 
 
-def test_request_requires_lease_identity_when_reading_claim(tmp_path: Path) -> None:
+def test_lease_identity_round_trip_is_optional_for_legacy_exchange_records(tmp_path: Path) -> None:
     exchange = FileExchange(tmp_path / "exchange")
-    exchange.put_request(JobEnvelope("r1:asr", "r1", "asr"))
-    with pytest.raises(ExchangeError, match="worker or lease_id"):
-        exchange.get_request("r1:asr")
+    result = ResultEnvelope("r1:asr", "failed", error="legacy worker")
+    exchange.put_result(result)
+    assert exchange.get_result("r1:asr") == result
