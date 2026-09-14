@@ -20,11 +20,7 @@ class Connection(Protocol):
 
 
 class SqlRepository(Repository):
-    """PostgreSQL-ready repository using only the DB-API connection contract.
-
-    The SQL uses PostgreSQL parameter placeholders and standard SQL types. A
-    concrete driver such as psycopg is intentionally an application concern.
-    """
+    """PostgreSQL-ready repository using only the DB-API connection contract."""
 
     def __init__(self, connection: Connection) -> None:
         self.connection = connection
@@ -50,11 +46,13 @@ class SqlRepository(Repository):
     def put_job(self, job: ExecutionJob) -> ExecutionJob:
         self._execute(
             """INSERT INTO execution_jobs
-            (job_id, recording_id, stage, status, attempt, artifact_id, worker, error, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (job_id, recording_id, stage, status, attempt, artifact_id, worker, error,
+             updated_at, lease_id, lease_until, heartbeat_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (job_id) DO NOTHING""",
             (job.job_id, job.recording_id, job.stage, job.status, job.attempt,
-             job.artifact_id, job.worker, job.error, job.updated_at),
+             job.artifact_id, job.worker, job.error, job.updated_at,
+             job.lease_id, job.lease_until, job.heartbeat_at),
         )
         stored = self.get_job(job.job_id)
         if stored is None:
@@ -64,8 +62,8 @@ class SqlRepository(Repository):
     def get_job(self, job_id: str) -> ExecutionJob | None:
         row = self._query_one(
             """SELECT job_id, recording_id, stage, status, attempt,
-            artifact_id, worker, error, updated_at
-            FROM execution_jobs WHERE job_id = %s""",
+            artifact_id, worker, error, updated_at, lease_id, lease_until,
+            heartbeat_at FROM execution_jobs WHERE job_id = %s""",
             (job_id,),
         )
         return self._job(row) if row else None
@@ -73,8 +71,8 @@ class SqlRepository(Repository):
     def list_jobs(self, recording_id: str) -> list[ExecutionJob]:
         rows = self._query_all(
             """SELECT job_id, recording_id, stage, status, attempt,
-            artifact_id, worker, error, updated_at
-            FROM execution_jobs WHERE recording_id = %s
+            artifact_id, worker, error, updated_at, lease_id, lease_until,
+            heartbeat_at FROM execution_jobs WHERE recording_id = %s
             ORDER BY stage, job_id""",
             (recording_id,),
         )
@@ -84,9 +82,11 @@ class SqlRepository(Repository):
         self._execute(
             """UPDATE execution_jobs SET recording_id = %s, stage = %s,
             status = %s, attempt = %s, artifact_id = %s, worker = %s,
-            error = %s, updated_at = %s WHERE job_id = %s""",
+            error = %s, updated_at = %s, lease_id = %s, lease_until = %s,
+            heartbeat_at = %s WHERE job_id = %s""",
             (job.recording_id, job.stage, job.status, job.attempt, job.artifact_id,
-             job.worker, job.error, job.updated_at, job.job_id),
+             job.worker, job.error, job.updated_at, job.lease_id, job.lease_until,
+             job.heartbeat_at, job.job_id),
         )
         stored = self.get_job(job.job_id)
         if stored is None:
@@ -146,5 +146,6 @@ class SqlRepository(Repository):
     @staticmethod
     def _job(row: tuple[Any, ...]) -> ExecutionJob:
         return ExecutionJob(
-            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]
+            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7],
+            row[8], row[9], row[10], row[11]
         )
