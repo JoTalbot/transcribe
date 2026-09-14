@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 import uuid
 
-from .execution_lease import CLAIM_SQL, COMPLETE_SQL, FAIL_SQL, HEARTBEAT_SQL
+from .execution_lease import CLAIM_JOB_SQL, CLAIM_SQL, COMPLETE_SQL, FAIL_SQL, HEARTBEAT_SQL
 from .job_store import ExecutionJob
 from .repository import Recording, Repository
 
@@ -103,6 +103,16 @@ class SqlRepository(Repository):
             raise ValueError("lease_seconds must be positive")
         return self._lease_query(
             CLAIM_SQL, (worker, uuid.uuid4().hex, lease_seconds), expect_job=True
+        )
+
+    def claim_job(self, job_id: str, worker: str, lease_seconds: int = 3600) -> ExecutionJob | None:
+        """Atomically claim a specific queued/retry job, or return None if another worker won."""
+        if not job_id or not worker:
+            raise ValueError("job_id and worker are required")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        return self._lease_query(
+            CLAIM_JOB_SQL, (worker, uuid.uuid4().hex, lease_seconds, job_id), expect_job=True
         )
 
     def heartbeat(self, job_id: str, worker: str, lease_id: str, lease_seconds: int = 900) -> ExecutionJob:
