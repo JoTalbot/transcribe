@@ -41,9 +41,24 @@ def read_claimed(path: Path) -> JobEnvelope:
     return request
 
 
+def quarantine_claim(exchange: FileExchange, path: Path) -> Path:
+    quarantine = exchange.results / "quarantine"
+    quarantine.mkdir(parents=True, exist_ok=True)
+    target = quarantine / path.name
+    if target.exists():
+        target = quarantine / f"{path.stem}.{time.time_ns()}{path.suffix}"
+    path.replace(target)
+    return target
+
+
 def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelope:
     path = claim_request(exchange, job_id)
-    request = read_claimed(path)
+    try:
+        request = read_claimed(path)
+    except ExchangeError:
+        quarantine_claim(exchange, path)
+        raise
+
     try:
         result = processor(request)
         if result.job_id != request.job_id:
