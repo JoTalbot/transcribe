@@ -13,6 +13,8 @@ class JobEnvelope:
     stage: str
     input_artifact_id: str | None = None
     input_path: str | None = None
+    worker: str | None = None
+    lease_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +23,8 @@ class ResultEnvelope:
     status: str
     artifact_id: str | None = None
     error: str | None = None
+    worker: str | None = None
+    lease_id: str | None = None
 
 
 class ExchangeError(RuntimeError):
@@ -45,11 +49,7 @@ def _read_json(path: Path) -> dict[str, object]:
 
 
 class FileExchange:
-    """Simple Drive-compatible contract using atomic JSON files.
-
-    The root may be a local directory or a directory mounted from Google Drive.
-    Authentication and transport are intentionally outside this module.
-    """
+    """Simple Drive-compatible contract using atomic JSON files."""
 
     def __init__(self, root: Path):
         self.root = root.expanduser().resolve()
@@ -78,6 +78,8 @@ class FileExchange:
             raise ValueError("job_id and status must not be empty")
         if result.status == "completed" and not result.artifact_id:
             raise ValueError("completed result requires artifact_id")
+        if not result.worker or not result.lease_id:
+            raise ValueError("worker and lease_id are required")
         path = self.results / f"{result.job_id}.json"
         _write_json_atomic(path, asdict(result))
         return path
@@ -90,6 +92,8 @@ class FileExchange:
             raise ExchangeError(f"invalid job result {job_id}") from exc
         if result.job_id != job_id:
             raise ExchangeError(f"job result id mismatch: expected {job_id}, got {result.job_id}")
+        if not result.worker or not result.lease_id:
+            raise ExchangeError(f"result {job_id} is missing worker or lease_id")
         return result
 
     def list_requests(self) -> list[Path]:
