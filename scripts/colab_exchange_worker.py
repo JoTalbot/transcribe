@@ -6,12 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from transcribe_intelligence.exchange import (
-    ExchangeError,
-    FileExchange,
-    JobEnvelope,
-    ResultEnvelope,
-)
+from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 
 try:
     from .colab_inference import InferenceConfig, make_processor, resolve_audio
@@ -22,7 +17,6 @@ except ImportError:
 
 
 def claim_request(exchange: FileExchange, job_id: str) -> Path:
-    """Move a queued request into processing on the same filesystem."""
     source = exchange.requests / f"{job_id}.json"
     processing = exchange.root / "processing"
     processing.mkdir(parents=True, exist_ok=True)
@@ -42,6 +36,8 @@ def read_claimed(path: Path) -> JobEnvelope:
         raise ExchangeError(f"invalid claimed request {path}") from exc
     if not request.job_id.strip() or not request.recording_id.strip() or not request.stage.strip():
         raise ExchangeError(f"claimed request {path} contains empty required fields")
+    if not request.worker or not request.lease_id:
+        raise ExchangeError(f"claimed request {path} is missing worker or lease_id")
     return request
 
 
@@ -52,10 +48,20 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
         result = processor(request)
         if result.job_id != request.job_id:
             raise ExchangeError("processor returned a different job_id")
+        if result.status not in {"completed", "failed"}:
+            raise ExchangeError(f"processor returned unsupported status: {result.status}")
+        result = ResultEnvelope(
+            result.job_id,
+            result.status,
+            result.artifact_id,
+            result.error,
+            request.worker,
+            request.lease_id,
+        )
         exchange.put_result(result)
         return result
     except Exception as exc:
-        result = ResultEnvelope(request.job_id, "failed", error=str(exc))
+        result = ResultEnvelope(request.job_id, "failed", error=str(exc), worker=request.worker, lease_id=request.lease_id)
         exchange.put_result(result)
         return result
     finally:
@@ -63,8 +69,7 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
 
 
 def dry_run_processor(request: JobEnvelope) -> ResultEnvelope:
-    """Return a deterministic result without loading GPU models."""
-    return ResultEnvelope(request.job_id, "completed", artifact_id=f"dry-run:{request.job_id}")
+    return ResultEnvelope(request.job_id, "completed", artifact_id=f"dry-run:{request.job_id}", worker=request.worker, lease_id=request.lease_id)
 
 
 def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
@@ -82,11 +87,7 @@ def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
     whisper = WhisperModel(config.whisper_model, device="cuda", compute_type=config.compute_type)
     diarizer = Pipeline.from_pretrained(config.diarization_model, use_auth_token=token)
     diarizer.to(torch.device("cuda"))
-    embedder = EncoderClassifier.from_hparams(
-        source=embedding_config.model_name,
-        savedir="/content/speechbrain_ecapa",
-        run_opts={"device": "cuda"},
-    )
+    embedder = EncoderClassifier.from_hparams(source=embedding_config.model_name, savedir="/content/speechbrain_ecapa", run_opts={"device": "cuda"})
     return whisper, diarizer, embedder
 
 
@@ -95,23 +96,16 @@ def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedd
 
     def process(request: JobEnvelope) -> ResultEnvelope:
         if request.stage != "embeddings":
-            return base_processor(request)
+            result = base_processor(request)
+            return ResultEnvelope(result.job_id, result.status, result.artifact_id, result.error, request.worker, request.lease_id)
         audio = resolve_audio(input_dir, request)
         diarized_json = output_dir / request.recording_id / f"{request.recording_id}.json"
         if not diarized_json.is_file():
             raise FileNotFoundError(f"diarization artifact not found: {diarized_json}")
-        embeddings = extract_and_persist(
-            audio=audio,
-            diarized_json=diarized_json,
-            output_dir=output_dir / request.recording_id / "embeddings",
-            recording_id=request.recording_id,
-            model=embedder,
-            config=embedding_config,
-        )
-        artifact_id = f"{request.recording_id}:embeddings:json"
+        embeddings = extract_and_persist(audio=audio, diarized_json=diarized_json, output_dir=output_dir / request.recording_id / "embeddings", recording_id=request.recording_id, model=embedder, config=embedding_config)
         if not embeddings:
             raise RuntimeError(f"no usable speaker segments for {request.recording_id}")
-        return ResultEnvelope(request.job_id, "completed", artifact_id=artifact_id)
+        return ResultEnvelope(request.job_id, "completed", artifact_id=f"{request.recording_id}:embeddings:json", worker=request.worker, lease_id=request.lease_id)
 
     return process
 
@@ -126,13 +120,11 @@ def main() -> int:
     args = parser.parse_args()
     if args.poll < 1:
         parser.error("--poll must be at least 1 second")
-
     config = InferenceConfig()
     embedding_config = EmbeddingConfig()
     whisper, diarizer, embedder = load_models(config, embedding_config)
     processor = build_processor(Path(args.input), Path(args.output), whisper, diarizer, embedder, config, embedding_config)
     exchange = FileExchange(Path(args.root))
-
     while True:
         for path in exchange.list_requests():
             try:
