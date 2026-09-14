@@ -27,7 +27,6 @@ class ExchangeCoordinator:
         self.exchange = exchange
 
     def _exchange_has_job(self, job_id: str) -> bool:
-        """Return whether a request, processing claim, or result already exists."""
         return any(
             path.exists()
             for path in (
@@ -38,38 +37,26 @@ class ExchangeCoordinator:
         )
 
     def _claim(self, job: ExecutionJob, worker: str) -> ExecutionJob | None:
-        """Claim a ready job atomically when the repository provides DB leases."""
         claim_job = getattr(self.repository, "claim_job", None)
         if callable(claim_job):
             return claim_job(job.job_id, worker)
         return self.repository.update_job(job.next_attempt(worker))
 
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
-        """Publish ready queued/retry jobs without double-dispatching in-flight work."""
         recording = self.repository.get_recording(recording_id)
         if recording is None:
             raise KeyError(f"unknown recording: {recording_id}")
-
         jobs = self.repository.list_jobs(recording_id)
-        completed = {
-            job.stage: job.artifact_id
-            for job in jobs
-            if job.status == "completed" and job.artifact_id
-        }
+        completed = {job.stage: job.artifact_id for job in jobs if job.status == "completed" and job.artifact_id}
         dispatches: list[Dispatch] = []
-
         for job in jobs:
             if job.status not in {"queued", "retry"}:
                 continue
             required = dependencies(job.stage)
-            if not all(stage in completed for stage in required):
+            if not all(stage in completed for stage in required) or self._exchange_has_job(job.job_id):
                 continue
-            if self._exchange_has_job(job.job_id):
-                continue
-
             running = self._claim(job, worker)
             if running is None:
-                # Another scheduler won the race after our readiness snapshot.
                 continue
             input_artifact_id = completed[required[0]] if required else None
             request = JobEnvelope(
@@ -78,14 +65,14 @@ class ExchangeCoordinator:
                 stage=running.stage,
                 input_artifact_id=input_artifact_id,
                 input_path=recording.input_path if input_artifact_id is None else None,
+                worker=running.worker,
+                lease_id=running.lease_id,
             )
             path = self.exchange.put_request(request)
             dispatches.append(Dispatch(running.job_id, str(path)))
-
         return dispatches
 
     def heartbeat(self, job_id: str, worker: str | None = None) -> ExecutionJob:
-        """Refresh a running job lease while preserving attempt and ownership."""
         job = self.repository.get_job(job_id)
         if job is None:
             raise KeyError(f"unknown job: {job_id}")
@@ -98,7 +85,6 @@ class ExchangeCoordinator:
         return self.repository.update_job(refreshed)
 
     def quarantine_result(self, path: Path, reason: str) -> Path:
-        """Move a bad result aside so one poisoned envelope cannot block the queue."""
         quarantine = self.exchange.results / "quarantine"
         quarantine.mkdir(parents=True, exist_ok=True)
         target = quarantine / path.name
@@ -109,29 +95,42 @@ class ExchangeCoordinator:
         return target
 
     def apply_results(self) -> int:
-        """Consume valid results and quarantine malformed/conflicting ones."""
         changed = 0
         for path in sorted(self.exchange.results.glob("*.json")):
             try:
                 result = self.exchange.get_result(path.stem)
-                changed += int(apply_result(self.repository, result))
-            except (ExchangeError, KeyError, ValueError) as exc:
+                job = self.repository.get_job(result.job_id)
+                if job is None:
+                    raise KeyError(f"unknown job: {result.job_id}")
+                complete = getattr(self.repository, "complete", None)
+                fail = getattr(self.repository, "fail", None)
+                if callable(complete) and callable(fail):
+                    if result.worker != job.worker or result.lease_id != job.lease_id:
+                        raise ExchangeError(f"stale or foreign result for job {result.job_id}")
+                    if result.status == "completed":
+                        if not result.artifact_id:
+                            raise ValueError("completed result requires artifact_id")
+                        complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                    elif result.status == "failed":
+                        fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
+                    else:
+                        raise ValueError("result status must be completed or failed")
+                    changed += 1
+                else:
+                    changed += int(apply_result(self.repository, result))
+            except (ExchangeError, KeyError, ValueError, RuntimeError) as exc:
                 self.quarantine_result(path, str(exc))
         return changed
 
     def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
-        """Apply available results, then dispatch newly-ready work."""
         changed = self.apply_results()
         dispatches = self.dispatch_ready(recording_id, worker=worker)
         return dispatches, changed
 
 
 def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
-    """Return queued/retry jobs whose stage prerequisites are completed."""
     completed = {job.stage for job in jobs if job.status == "completed" and job.artifact_id}
     return [
-        job
-        for job in sorted(jobs, key=lambda item: (item.stage, item.job_id))
-        if job.status in {"queued", "retry"}
-        and all(stage in completed for stage in dependencies(job.stage))
+        job for job in sorted(jobs, key=lambda item: (item.stage, item.job_id))
+        if job.status in {"queued", "retry"} and all(stage in completed for stage in dependencies(job.stage))
     ]
