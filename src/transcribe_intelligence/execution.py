@@ -67,7 +67,7 @@ def dispatch_one_repository(
     """
     job = repository.claim_job(job_id, worker, lease_seconds)
     if job is None:
-        current = getattr(repository, "get_job")(job_id)
+        current = repository.get_job(job_id)
         if current is None:
             raise KeyError(job_id)
         if current.status == "completed":
