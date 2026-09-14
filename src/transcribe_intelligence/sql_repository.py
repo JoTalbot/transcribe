@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from typing import Any, Protocol
+import uuid
 
+from .execution_lease import CLAIM_SQL, COMPLETE_SQL, FAIL_SQL, HEARTBEAT_SQL
 from .job_store import ExecutionJob
 from .repository import Recording, Repository
 
@@ -93,6 +95,52 @@ class SqlRepository(Repository):
             raise KeyError(f"unknown job: {job.job_id}")
         return stored
 
+    def claim_next(self, worker: str, lease_seconds: int = 3600) -> ExecutionJob | None:
+        """Atomically claim one queued/retry job for a worker."""
+        if not worker:
+            raise ValueError("worker is required")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        return self._lease_query(
+            CLAIM_SQL, (worker, uuid.uuid4().hex, lease_seconds), expect_job=True
+        )
+
+    def heartbeat(self, job_id: str, worker: str, lease_id: str, lease_seconds: int = 900) -> ExecutionJob:
+        """Refresh a live worker lease, rejecting stale or foreign ownership."""
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        row = self._lease_query(HEARTBEAT_SQL, (lease_seconds, job_id, worker, lease_id))
+        if row is None:
+            raise RuntimeError("lease heartbeat rejected")
+        job = self.get_job(job_id)
+        if job is None:
+            raise KeyError(f"unknown job: {job_id}")
+        return job
+
+    def complete(self, job_id: str, worker: str, lease_id: str, artifact_id: str) -> ExecutionJob:
+        """Complete only the currently owned, unexpired lease."""
+        if not artifact_id:
+            raise ValueError("artifact_id is required")
+        row = self._lease_query(COMPLETE_SQL, (artifact_id, job_id, worker, lease_id))
+        if row is None:
+            raise RuntimeError("lease completion rejected")
+        job = self.get_job(job_id)
+        if job is None:
+            raise KeyError(f"unknown job: {job_id}")
+        return job
+
+    def fail(self, job_id: str, worker: str, lease_id: str, error: str) -> ExecutionJob:
+        """Fail only the currently owned, unexpired lease."""
+        if not error.strip():
+            raise ValueError("error must not be empty")
+        row = self._lease_query(FAIL_SQL, (error, job_id, worker, lease_id))
+        if row is None:
+            raise RuntimeError("lease failure update rejected")
+        job = self.get_job(job_id)
+        if job is None:
+            raise KeyError(f"unknown job: {job_id}")
+        return job
+
     def refresh_recording_status(self, recording_id: str) -> Recording | None:
         """Derive aggregate status atomically from persisted job state."""
         recording = self.get_recording(recording_id)
@@ -115,6 +163,21 @@ class SqlRepository(Repository):
             (status, recording_id),
         )
         return Recording(recording.recording_id, recording.input_path, status)
+
+    def _lease_query(
+        self, sql: str, parameters: tuple[Any, ...], expect_job: bool = False
+    ) -> ExecutionJob | tuple[Any, ...] | None:
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(sql, parameters)
+            row = cursor.fetchone()
+            self.connection.commit()
+            if expect_job and row is not None:
+                return self._job(row)
+            return row
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def _execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> None:
         try:
@@ -147,5 +210,9 @@ class SqlRepository(Repository):
     def _job(row: tuple[Any, ...]) -> ExecutionJob:
         return ExecutionJob(
             row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7],
-            row[8], row[9], row[10], row[11]
+            _iso(row[8]), _iso(row[9]), _iso(row[10]), _iso(row[11])
         )
+
+
+def _iso(value: Any) -> Any:
+    return value.isoformat() if hasattr(value, "isoformat") else value
