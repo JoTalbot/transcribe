@@ -35,6 +35,14 @@ DEFAULT_WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
     ORACLE_LOCAL.worker: ORACLE_LOCAL,
 }
 
+DEFAULT_STAGE_WORKERS: dict[Stage, str] = {
+    Stage.INGEST: ORACLE_LOCAL.worker,
+    Stage.NORMALIZE: ORACLE_LOCAL.worker,
+    Stage.ASR: COLAB_GPU.worker,
+    Stage.DIARIZATION: COLAB_GPU.worker,
+    Stage.EMBEDDINGS: COLAB_GPU.worker,
+}
+
 
 def make_capabilities(worker: str, stages: Iterable[Stage | str]) -> WorkerCapabilities:
     """Build a validated immutable capability declaration."""
