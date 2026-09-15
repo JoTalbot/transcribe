@@ -20,10 +20,10 @@ class ArtifactResolver:
     def _manifest_files(self) -> list[Path]:
         return sorted(self.root.rglob("*.manifest.json"))
 
-    def resolve(self, artifact_id: str) -> ArtifactManifest:
+    def _find_manifest(self, artifact_id: str) -> tuple[Path, ArtifactManifest]:
         if not artifact_id.strip():
             raise ValueError("artifact_id must not be empty")
-        matches: list[ArtifactManifest] = []
+        matches: list[tuple[Path, ArtifactManifest]] = []
         for manifest_path in self._manifest_files():
             try:
                 payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -31,23 +31,27 @@ class ArtifactResolver:
             except (OSError, json.JSONDecodeError, TypeError) as exc:
                 raise ArtifactResolutionError(f"invalid artifact manifest: {manifest_path}") from exc
             if manifest.artifact_id == artifact_id:
-                matches.append(manifest)
+                matches.append((manifest_path, manifest))
         if not matches:
             raise FileNotFoundError(f"artifact manifest not found: {artifact_id}")
         if len(matches) > 1:
             raise ArtifactResolutionError(f"duplicate artifact_id: {artifact_id}")
         return matches[0]
 
+    def resolve(self, artifact_id: str) -> ArtifactManifest:
+        """Resolve an artifact ID to its manifest."""
+        return self._find_manifest(artifact_id)[1]
+
     def resolve_path(self, artifact_id: str) -> Path:
         """Resolve and checksum-verify an artifact, supporting portable manifests."""
-        manifest = self.resolve(artifact_id)
+        manifest_path, manifest = self._find_manifest(artifact_id)
         declared = Path(manifest.path)
         candidates: list[Path] = []
         if not declared.is_absolute():
             candidates.append((self.root / declared).resolve())
         else:
             candidates.append(declared.expanduser().resolve())
-            candidates.append((self.root / declared.name).resolve())
+            candidates.append((manifest_path.parent / declared.name).resolve())
 
         for candidate in dict.fromkeys(candidates):
             if candidate.is_file() and self.root in candidate.parents:
