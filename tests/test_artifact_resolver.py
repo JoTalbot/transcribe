@@ -67,3 +67,13 @@ def test_resolver_supports_manifest_with_relative_path(tmp_path: Path):
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert ArtifactResolver(tmp_path).resolve_path("r1:diarization:json") == artifact.resolve()
+
+
+def test_resolver_keeps_absolute_manifest_fallback_local_to_manifest(tmp_path: Path):
+    artifact = _write_artifact(tmp_path)
+    manifest_path = tmp_path / "r1" / "r1_diarization_json.manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["path"] = "/original/exchange/r1/r1.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert ArtifactResolver(tmp_path).resolve_path("r1:diarization:json") == artifact.resolve()
