@@ -52,7 +52,7 @@ jobs:
         run: ruff check scripts src tests
       - name: Run tests
         timeout-minutes: 10
-        run: timeout --signal=TERM --kill-after=30s 8m python -m pytest -vv -ra
+        run: timeout --signal=TERM --kill-after=30s 8m python -m pytest -vv -ra --timeout=45 --timeout-method=thread
       - name: Validate script entrypoints
         run: |
           python scripts/oracle_worker.py --help >/dev/null
