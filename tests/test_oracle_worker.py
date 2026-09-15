@@ -60,7 +60,8 @@ def test_oracle_worker_retries_after_transient_cycle_failure(tmp_path: Path) -> 
 
     assert attempts == 2
     assert errors == ["Oracle worker cycle failed: temporary database outage"]
-    assert sleeps == []
+    assert len(sleeps) == 1
+    assert 0 <= sleeps[0] <= 10
 
 
 def test_oracle_worker_rejects_non_positive_interval(tmp_path: Path) -> None:
