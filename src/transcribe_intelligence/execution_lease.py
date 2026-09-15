@@ -84,6 +84,14 @@ WHERE job_id = %s AND status = 'running' AND worker = %s AND lease_id = %s AND l
 RETURNING job_id
 """
 
+RELEASE_SQL = """
+UPDATE execution_jobs
+SET status = 'retry', error = %s, worker = NULL, lease_id = NULL, lease_until = NULL,
+    heartbeat_at = NOW(), updated_at = NOW()
+WHERE job_id = %s AND status = 'running' AND worker = %s AND lease_id = %s
+RETURNING job_id
+"""
+
 RECOVER_STALE_SQL = """
 WITH stale AS (
     SELECT job_id, attempt FROM execution_jobs
