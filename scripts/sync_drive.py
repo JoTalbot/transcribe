@@ -21,7 +21,9 @@ def load_credentials(path: str | None) -> Any:
 
 def _is_media(name: str, mime_type: str | None = None) -> bool:
     suffix = Path(name).suffix.lower()
-    return suffix in AUDIO_EXTS or bool(mime_type and (mime_type.startswith("audio/") or mime_type.startswith("video/")))
+    return suffix in AUDIO_EXTS or bool(
+        mime_type and mime_type.startswith(("audio/", "video/"))
+    )
 
 
 def _safe_relative_name(name: str) -> Path:
@@ -43,7 +45,11 @@ def list_drive_media(service: Any, folder_id: str) -> list[dict[str, Any]]:
             pageToken=page_token,
             fields="nextPageToken,files(id,name,mimeType,modifiedTime,size)",
         ).execute()
-        files.extend(item for item in response.get("files", []) if _is_media(item.get("name", ""), item.get("mimeType")))
+        files.extend(
+            item
+            for item in response.get("files", [])
+            if _is_media(item.get("name", ""), item.get("mimeType"))
+        )
         page_token = response.get("nextPageToken")
         if not page_token:
             return files
@@ -52,7 +58,6 @@ def list_drive_media(service: Any, folder_id: str) -> list[dict[str, Any]]:
 def download_drive_file(service: Any, file_id: str, destination: Path) -> None:
     """Stream one Drive file to disk atomically."""
     from googleapiclient.http import MediaIoBaseDownload
-    import io
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + ".tmp")
@@ -91,8 +96,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="./transcribe", help="Mounted/local transcription root")
     parser.add_argument("--credentials", default=os.getenv("GDRIVE_CREDENTIALS"))
-    parser.add_argument("--folder-id", default=os.getenv("GDRIVE_FOLDER_ID"), help="Drive folder ID to download from")
-    parser.add_argument("--download", action="store_true", help="Download audio/video from --folder-id into input/")
+    parser.add_argument(
+        "--folder-id",
+        default=os.getenv("GDRIVE_FOLDER_ID"),
+        help="Drive folder ID to download from",
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Download audio/video from --folder-id into input/",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).expanduser().resolve()
@@ -117,12 +130,16 @@ def main() -> int:
         try:
             credentials = load_credentials(args.credentials)
             from googleapiclient.discovery import build
+
             service = build("drive", "v3", credentials=credentials, cache_discovery=False)
             service.files().list(pageSize=1, fields="files(id,name)").execute()
             print("Drive API: credentials accepted")
             if args.download:
                 count = download_drive_media(service, args.folder_id, incoming, processed)
-                registry.write_text(json.dumps(processed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                registry.write_text(
+                    json.dumps(processed, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
                 print(f"Drive download: {count} file(s)")
         except Exception as exc:
             print(f"Drive API check failed: {exc}")
@@ -133,7 +150,9 @@ def main() -> int:
     else:
         print("Drive API: not configured; using mounted/local filesystem mode")
 
-    files = sorted(p for p in incoming.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
+    files = sorted(
+        p for p in incoming.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTS
+    )
     pending = [p for p in files if str(p.relative_to(incoming)) not in processed]
     print(f"Root: {root}\nAudio/video files: {len(files)}\nProcessed: {len(processed)}\nPending: {len(pending)}")
     for path in pending:
