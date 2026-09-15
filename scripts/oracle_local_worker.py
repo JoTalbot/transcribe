@@ -1,15 +1,17 @@
-"""Process Oracle-local ingest and normalize jobs from the shared exchange."""
+"""Process Oracle-local CPU jobs from the shared exchange."""
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from pathlib import Path
 
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
+from transcribe_intelligence.local_intelligence import LocalIntelligenceProcessor
 from transcribe_intelligence.local_processors import LocalAudioProcessor
 
-LOCAL_STAGES = {"ingest", "normalize"}
+LOCAL_STAGES = {"ingest", "normalize", "text_analysis", "topics", "linking", "graph"}
 
 
 def _claim_local(exchange: FileExchange, job_id: str) -> Path | None:
@@ -29,37 +31,32 @@ def _claim_local(exchange: FileExchange, job_id: str) -> Path | None:
     return target
 
 
-def process_one(exchange: FileExchange, job_id: str, processor: LocalAudioProcessor) -> ResultEnvelope | None:
+def process_one(exchange: FileExchange, job_id: str, audio_processor: LocalAudioProcessor, intelligence_processor: LocalIntelligenceProcessor) -> ResultEnvelope | None:
     path = _claim_local(exchange, job_id)
     if path is None:
         return None
+    request = None
     try:
         try:
-            request = JobEnvelope(**__import__("json").loads(path.read_text(encoding="utf-8")))
+            request = JobEnvelope(**json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError, TypeError) as exc:
             raise ExchangeError(f"invalid claimed local request {path}") from exc
         if not request.worker or not request.lease_id:
             raise ExchangeError(f"claimed request {path} is missing worker or lease_id")
+        processor = audio_processor if request.stage in {"ingest", "normalize"} else intelligence_processor
         result = processor.process(request)
         if result.job_id != request.job_id:
             raise ExchangeError("local processor returned a different job_id")
-        result = ResultEnvelope(
-            result.job_id,
-            result.status,
-            result.artifact_id,
-            result.error,
-            request.worker,
-            request.lease_id,
-        )
+        result = ResultEnvelope(result.job_id, result.status, result.artifact_id, result.error, request.worker, request.lease_id)
         exchange.put_result(result)
         return result
     except Exception as exc:
         result = ResultEnvelope(
-            request.job_id if "request" in locals() else job_id,
+            request.job_id if request else job_id,
             "failed",
             error=str(exc),
-            worker=request.worker if "request" in locals() else None,
-            lease_id=request.lease_id if "request" in locals() else None,
+            worker=request.worker if request else None,
+            lease_id=request.lease_id if request else None,
         )
         exchange.put_result(result)
         return result
@@ -77,11 +74,12 @@ def main() -> int:
         parser.error("--poll must be at least 1 second")
 
     exchange = FileExchange(Path(args.exchange).expanduser())
-    processor = LocalAudioProcessor(exchange.root / "artifacts")
+    audio_processor = LocalAudioProcessor(exchange.root / "artifacts")
+    intelligence_processor = LocalIntelligenceProcessor(exchange.root / "artifacts")
     while True:
         for path in exchange.list_requests():
             try:
-                result = process_one(exchange, path.stem, processor)
+                result = process_one(exchange, path.stem, audio_processor, intelligence_processor)
                 if result is not None:
                     print(f"{result.job_id}\t{result.status}\t{result.artifact_id or result.error}", flush=True)
             except (ExchangeError, FileNotFoundError) as exc:
