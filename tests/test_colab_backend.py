@@ -1,6 +1,6 @@
 from transcribe_intelligence.colab_backend import ColabExecutionBackend, ColabJobRequest, FileColabSubmitter
 from transcribe_intelligence.execution import ExecutionResult
-from transcribe_intelligence.exchange import FileExchange, JobEnvelope
+from transcribe_intelligence.exchange import FileExchange
 from transcribe_intelligence.job_store import ExecutionJob
 
 
