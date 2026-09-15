@@ -127,6 +127,7 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
         Stage.GRAPH: ORACLE_LOCAL.worker,
     }
     observed_workers: dict[str, str] = {}
+    observed_inputs: dict[str, tuple[str, ...]] = {}
 
     while True:
         coordinator.cycle(recording_id)
@@ -135,6 +136,7 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
             for request_path in requests:
                 request = exchange.get_request(request_path.stem)
                 observed_workers[request.stage] = request.worker
+                observed_inputs[request.stage] = request.input_artifact_ids
                 artifact = f"{recording_id}:{request.stage}:artifact"
                 exchange.put_result(
                     ResultEnvelope(
@@ -151,10 +153,23 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
             break
 
     assert observed_workers == {stage.value: worker for stage, worker in expected_workers.items()}
+    assert observed_inputs == {
+        Stage.INGEST.value: (),
+        Stage.NORMALIZE.value: (f"{recording_id}:ingest:artifact",),
+        Stage.ASR.value: (f"{recording_id}:normalize:artifact",),
+        Stage.DIARIZATION.value: (f"{recording_id}:asr:artifact",),
+        Stage.EMBEDDINGS.value: (f"{recording_id}:diarization:artifact",),
+        Stage.TEXT_ANALYSIS.value: (f"{recording_id}:asr:artifact",),
+        Stage.TOPICS.value: (f"{recording_id}:text_analysis:artifact",),
+        Stage.LINKING.value: (
+            f"{recording_id}:topics:artifact",
+            f"{recording_id}:embeddings:artifact",
+        ),
+        Stage.GRAPH.value: (f"{recording_id}:linking:artifact",),
+    }
     jobs = repository.list_jobs(recording_id)
     assert all(job.status == "completed" for job in jobs)
     assert all(job.artifact_id == f"{recording_id}:{job.stage}:artifact" for job in jobs)
     assert repository.get_recording(recording_id).status == "completed"
 
-    asr_request = exchange.results / "quarantine" / "unused.json"
-    assert not asr_request.exists()
+    assert not list((exchange.results / "quarantine").glob("*.json"))
