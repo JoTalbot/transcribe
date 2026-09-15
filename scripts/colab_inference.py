@@ -145,14 +145,27 @@ def make_processor(input_dir: Path, output_dir: Path, whisper: Any, diarizer: An
             manifests = transcribe_asr_file(audio, recording_dir, request.recording_id, config, whisper)
         elif request.stage == "diarization":
             if not request.input_artifact_id:
-                raise ValueError("diarization request requires input_artifact_id")
-            asr_manifest = artifact_resolver.resolve(request.input_artifact_id)
-            if asr_manifest.stage != "asr" or asr_manifest.kind != "transcript":
-                raise ValueError("diarization input artifact must be an ASR transcript")
-            asr_path = artifact_resolver.resolve_path(request.input_artifact_id)
-            normalize_id = f"{request.recording_id}:normalize:audio"
-            audio = artifact_resolver.resolve_path(normalize_id)
-            manifests = diarize_asr_file(audio, recording_dir, request.recording_id, config, diarizer, asr_path)
+                audio = resolve_audio(input_dir, request, output_dir)
+                manifests = transcribe_file(audio, recording_dir, request.recording_id, config, whisper, diarizer)
+                manifests = [
+                    build_manifest(
+                        recording_dir / f"{request.recording_id}.json",
+                        artifact_id=f"{request.recording_id}:diarization:json",
+                        recording_id=request.recording_id,
+                        stage="diarization",
+                        kind="json",
+                        producer="colab-whisper-pyannote",
+                        model_version=config.diarization_model,
+                    )
+                ]
+            else:
+                asr_manifest = artifact_resolver.resolve(request.input_artifact_id)
+                if asr_manifest.stage != "asr" or asr_manifest.kind != "transcript":
+                    raise ValueError("diarization input artifact must be an ASR transcript")
+                asr_path = artifact_resolver.resolve_path(request.input_artifact_id)
+                normalize_id = f"{request.recording_id}:normalize:audio"
+                audio = artifact_resolver.resolve_path(normalize_id)
+                manifests = diarize_asr_file(audio, recording_dir, request.recording_id, config, diarizer, asr_path)
         else:
             raise ValueError(f"unsupported inference stage: {request.stage}")
         for manifest in manifests:
