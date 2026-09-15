@@ -42,15 +42,19 @@ def run_forever(
     stop: Callable[[], bool] | None = None,
     dispatch_fn: Callable[..., int] = dispatch_manifest,
     sleep_fn: Callable[[float], None] = time.sleep,
+    log_fn: Callable[[str], None] = print,
 ) -> None:
-    """Run safe scheduling cycles with a fresh DB connection per cycle."""
+    """Run scheduling cycles and survive transient dispatch/DB failures."""
     if interval_seconds <= 0:
         raise ValueError("interval_seconds must be positive")
     stop_fn = stop or (lambda: False)
     payload = load_manifest(manifest)
     while not stop_fn():
         started = time.monotonic()
-        dispatch_fn(payload, FileExchange(exchange), database_url, worker, max_attempts, None)
+        try:
+            dispatch_fn(payload, FileExchange(exchange), database_url, worker, max_attempts, None)
+        except Exception as exc:
+            log_fn(f"Oracle worker cycle failed: {exc}")
         if stop_fn():
             break
         elapsed = max(0.0, time.monotonic() - started)
