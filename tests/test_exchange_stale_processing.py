@@ -18,9 +18,7 @@ def test_stale_processing_marker_is_quarantined_and_retry_is_redispatched(tmp_pa
     processing.mkdir(parents=True)
     processing_file = processing / f"{job_id}.json"
     processing_file.write_text(
-        '{"job_id":"{}","recording_id":"{}","stage":"ingest","worker":"old-worker","lease_id":"expired"}\n'.format(
-            job_id, recording_id
-        ),
+        f'{{"job_id":"{job_id}","recording_id":"{recording_id}","stage":"ingest","worker":"old-worker","lease_id":"expired"}}\n',
         encoding="utf-8",
     )
 
