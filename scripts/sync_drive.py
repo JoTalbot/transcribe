@@ -73,6 +73,17 @@ def download_drive_file(service: Any, file_id: str, destination: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _processed_paths(processed: dict[str, Any]) -> set[str]:
+    """Return paths recorded by both local and Drive processing."""
+    paths: set[str] = set()
+    for key, value in processed.items():
+        if isinstance(value, dict) and isinstance(value.get("path"), str):
+            paths.add(value["path"])
+        elif not key.startswith("drive:"):
+            paths.add(key)
+    return paths
+
+
 def download_drive_media(service: Any, folder_id: str, incoming: Path, processed: dict[str, Any]) -> int:
     """Download unprocessed media files from a Drive folder into input/."""
     downloaded = 0
@@ -80,13 +91,17 @@ def download_drive_media(service: Any, folder_id: str, incoming: Path, processed
         relative = _safe_relative_name(item["name"])
         key = f"drive:{item['id']}"
         destination = incoming / relative
-        if key in processed and destination.is_file():
-            continue
+        record = processed.get(key)
+        if isinstance(record, dict) and destination.is_file():
+            stored_mtime = record.get("modifiedTime")
+            if stored_mtime is None or stored_mtime == item.get("modifiedTime"):
+                continue
         download_drive_file(service, item["id"], destination)
         processed[key] = {
             "name": item["name"],
             "path": str(relative),
             "modifiedTime": item.get("modifiedTime"),
+            "size": item.get("size"),
         }
         downloaded += 1
     return downloaded
@@ -153,8 +168,9 @@ def main() -> int:
     files = sorted(
         p for p in incoming.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTS
     )
-    pending = [p for p in files if str(p.relative_to(incoming)) not in processed]
-    print(f"Root: {root}\nAudio/video files: {len(files)}\nProcessed: {len(processed)}\nPending: {len(pending)}")
+    processed_paths = _processed_paths(processed)
+    pending = [p for p in files if str(p.relative_to(incoming)) not in processed_paths]
+    print(f"Root: {root}\nAudio/video files: {len(files)}\nProcessed: {len(processed_paths)}\nPending: {len(pending)}")
     for path in pending:
         print(f"PENDING {path.relative_to(incoming)}")
     return 0
