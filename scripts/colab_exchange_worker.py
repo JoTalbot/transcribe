@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 
+from transcribe_intelligence.artifact_resolver import ArtifactResolver
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 
 try:
@@ -108,15 +109,21 @@ def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
 
 def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedder, config: InferenceConfig, embedding_config: EmbeddingConfig):
     base_processor = make_processor(input_dir, output_dir, whisper, diarizer, config)
+    artifact_resolver = ArtifactResolver(output_dir)
 
     def process(request: JobEnvelope) -> ResultEnvelope:
         if request.stage != "embeddings":
             result = base_processor(request)
             return ResultEnvelope(result.job_id, result.status, result.artifact_id, result.error, request.worker, request.lease_id)
         audio = resolve_audio(input_dir, request)
-        diarized_json = output_dir / request.recording_id / f"{request.recording_id}.json"
-        if not diarized_json.is_file():
-            raise FileNotFoundError(f"diarization artifact not found: {diarized_json}")
+        if not request.input_artifact_id:
+            raise ExchangeError("embeddings request requires input_artifact_id")
+        diarized_json = artifact_resolver.resolve_path(request.input_artifact_id)
+        manifest = artifact_resolver.resolve(request.input_artifact_id)
+        if manifest.stage != "diarization" or manifest.kind != "diarization":
+            raise ExchangeError(
+                f"embeddings input artifact must be a diarization artifact, got {manifest.stage}/{manifest.kind}"
+            )
         embeddings = extract_and_persist(audio=audio, diarized_json=diarized_json, output_dir=output_dir / request.recording_id / "embeddings", recording_id=request.recording_id, model=embedder, config=embedding_config)
         if not embeddings:
             raise RuntimeError(f"no usable speaker segments for {request.recording_id}")
