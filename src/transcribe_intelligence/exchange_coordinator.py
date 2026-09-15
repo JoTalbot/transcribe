@@ -24,30 +24,25 @@ class Dispatch:
 class ExchangeCoordinator:
     """Drive one deterministic exchange cycle against a canonical repository."""
 
-    def __init__(
-        self,
-        repository: Repository,
-        exchange: FileExchange,
-        worker_capabilities: dict[str, WorkerCapabilities] | None = None,
-        stage_workers: dict[Stage | str, str] | None = None,
-    ):
+    def __init__(self, repository: Repository, exchange: FileExchange, worker_capabilities: dict[str, WorkerCapabilities] | None = None, stage_workers: dict[Stage | str, str] | None = None):
         self.repository = repository
         self.exchange = exchange
         self.worker_capabilities = worker_capabilities
-        self.stage_workers = {
-            stage if isinstance(stage, Stage) else Stage(stage): worker
-            for stage, worker in (stage_workers or {}).items()
-        }
+        self.stage_workers = {stage if isinstance(stage, Stage) else Stage(stage): worker for stage, worker in (stage_workers or {}).items()}
 
     def _exchange_has_job(self, job_id: str) -> bool:
-        return any(
-            path.exists()
-            for path in (
-                self.exchange.requests / f"{job_id}.json",
-                self.exchange.results / f"{job_id}.json",
-                self.exchange.root / "processing" / f"{job_id}.json",
-            )
-        )
+        request = self.exchange.requests / f"{job_id}.json"
+        result = self.exchange.results / f"{job_id}.json"
+        processing = self.exchange.root / "processing" / f"{job_id}.json"
+        if request.exists() or result.exists():
+            return True
+        if not processing.exists():
+            return False
+        current = self.repository.get_job(job_id)
+        if current is None or current.status != "running":
+            self.quarantine_result(processing, "orphaned processing marker after lease recovery")
+            return False
+        return True
 
     def _claim(self, job: ExecutionJob, worker: str) -> ExecutionJob | None:
         claim_job = getattr(self.repository, "claim_job", None)
@@ -61,22 +56,7 @@ class ExchangeCoordinator:
         if callable(release) and job.worker and job.lease_id:
             release(job.job_id, job.worker, job.lease_id, error)
             return
-        self.repository.update_job(
-            ExecutionJob(
-                job.job_id,
-                job.recording_id,
-                job.stage,
-                "retry",
-                job.attempt,
-                job.artifact_id,
-                None,
-                error,
-                job.updated_at,
-                None,
-                None,
-                None,
-            )
-        )
+        self.repository.update_job(ExecutionJob(job.job_id, job.recording_id, job.stage, "retry", job.attempt, job.artifact_id, None, error, job.updated_at, None, None, None))
 
     def _target_worker(self, stage: Stage, fallback: str) -> str | None:
         """Resolve an explicit route or a deterministic capable default."""
@@ -86,7 +66,6 @@ class ExchangeCoordinator:
                 return explicit
             capabilities = self.worker_capabilities.get(explicit)
             return explicit if capabilities is not None and capabilities.supports(stage) else None
-
         if fallback == "colab":
             candidates = self.worker_capabilities
             default_worker = DEFAULT_STAGE_WORKERS.get(stage)
@@ -100,7 +79,6 @@ class ExchangeCoordinator:
                 if candidates[worker_name].supports(stage):
                     return worker_name
             return None
-
         if self.worker_capabilities is None:
             return fallback
         capabilities = self.worker_capabilities.get(fallback)
@@ -131,16 +109,7 @@ class ExchangeCoordinator:
                 continue
             input_artifact_ids = tuple(completed[stage_name] for stage_name in required)
             input_artifact_id = input_artifact_ids[0] if input_artifact_ids else None
-            request = JobEnvelope(
-                job_id=running.job_id,
-                recording_id=running.recording_id,
-                stage=running.stage,
-                input_artifact_id=input_artifact_id,
-                input_artifact_ids=input_artifact_ids,
-                input_path=recording.input_path if not input_artifact_ids else None,
-                worker=running.worker,
-                lease_id=running.lease_id,
-            )
+            request = JobEnvelope(job_id=running.job_id, recording_id=running.recording_id, stage=running.stage, input_artifact_id=input_artifact_id, input_artifact_ids=input_artifact_ids, input_path=recording.input_path if not input_artifact_ids else None, worker=running.worker, lease_id=running.lease_id)
             try:
                 path = self.exchange.put_request(request)
             except Exception as exc:
@@ -178,12 +147,7 @@ class ExchangeCoordinator:
     def _lease_still_matches(self, job: ExecutionJob, worker: str | None, lease_id: str | None) -> bool:
         """Re-check ownership after a lease-aware mutation rejects a result."""
         current = self.repository.get_job(job.job_id)
-        return (
-            current is not None
-            and current.status == "running"
-            and current.worker == worker
-            and current.lease_id == lease_id
-        )
+        return current is not None and current.status == "running" and current.worker == worker and current.lease_id == lease_id
 
     def apply_results(self) -> int:
         changed = 0
@@ -194,11 +158,9 @@ class ExchangeCoordinator:
             except (ExchangeError, KeyError, ValueError) as exc:
                 self.quarantine_result(path, str(exc))
                 continue
-
             if job is None:
                 self.quarantine_result(path, f"unknown job: {result.job_id}")
                 continue
-
             complete = getattr(self.repository, "complete", None)
             fail = getattr(self.repository, "fail", None)
             if result.status == "completed" and callable(complete):
@@ -250,11 +212,7 @@ class ExchangeCoordinator:
 
 def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
     """Return deterministic queued jobs whose prerequisites are completed."""
-    completed = {
-        (job.recording_id, job.stage): job.artifact_id
-        for job in jobs
-        if job.status == "completed" and job.artifact_id
-    }
+    completed = {(job.recording_id, job.stage): job.artifact_id for job in jobs if job.status == "completed" and job.artifact_id}
     ready: list[ExecutionJob] = []
     for job in jobs:
         if job.status != "queued":
