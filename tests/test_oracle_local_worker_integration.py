@@ -1,6 +1,5 @@
 from pathlib import Path
-
-import pytest
+import wave
 
 from scripts.oracle_local_worker import process_one
 from transcribe_intelligence.artifacts import build_manifest, write_manifest
@@ -19,17 +18,11 @@ def _run(exchange: FileExchange, request: JobEnvelope, audio: LocalAudioProcesso
 
 def test_oracle_local_worker_runs_real_cpu_chain(tmp_path: Path) -> None:
     source = tmp_path / "input.wav"
-    pytest.importorskip("numpy")
-    import wave
-
-    import numpy as np
-
-    samples = (np.zeros(16000, dtype=np.int16)).tobytes()
     with wave.open(str(source), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
         handle.setframerate(16000)
-        handle.writeframes(samples)
+        handle.writeframes(b"\x00\x00" * 16000)
 
     root = tmp_path / "exchange"
     exchange = FileExchange(root)
@@ -70,4 +63,4 @@ def test_oracle_local_worker_runs_real_cpu_chain(tmp_path: Path) -> None:
     graph_id = _run(exchange, graph, audio, intelligence)
 
     assert graph_id == "recording:graph:json"
-    assert (root / "artifacts").joinpath("recording").exists()
+    assert (root / "artifacts" / "recording").exists()
