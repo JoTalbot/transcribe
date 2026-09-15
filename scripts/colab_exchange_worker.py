@@ -10,10 +10,10 @@ from transcribe_intelligence.artifact_resolver import ArtifactResolver
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 
 try:
-    from .colab_inference import InferenceConfig, make_processor, resolve_audio
+    from .colab_inference import InferenceConfig, make_processor
     from .colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 except ImportError:
-    from colab_inference import InferenceConfig, make_processor, resolve_audio
+    from colab_inference import InferenceConfig, make_processor
     from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 
 
@@ -59,21 +59,13 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
     except ExchangeError:
         quarantine_claim(exchange, path)
         raise
-
     try:
         result = processor(request)
         if result.job_id != request.job_id:
             raise ExchangeError("processor returned a different job_id")
         if result.status not in {"completed", "failed"}:
             raise ExchangeError(f"processor returned unsupported status: {result.status}")
-        result = ResultEnvelope(
-            result.job_id,
-            result.status,
-            result.artifact_id,
-            result.error,
-            request.worker,
-            request.lease_id,
-        )
+        result = ResultEnvelope(result.job_id, result.status, result.artifact_id, result.error, request.worker, request.lease_id)
         exchange.put_result(result)
         return result
     except Exception as exc:
@@ -84,17 +76,12 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
         path.unlink(missing_ok=True)
 
 
-def dry_run_processor(request: JobEnvelope) -> ResultEnvelope:
-    return ResultEnvelope(request.job_id, "completed", artifact_id=f"dry-run:{request.job_id}", worker=request.worker, lease_id=request.lease_id)
-
-
 def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
     import torch
     from faster_whisper import WhisperModel
     from google.colab import userdata
     from pyannote.audio import Pipeline
     from speechbrain.inference.speaker import EncoderClassifier
-
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required")
     token = userdata.get("HUGGINGFACE_TOKEN")
@@ -110,7 +97,6 @@ def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
 def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedder, config: InferenceConfig, embedding_config: EmbeddingConfig):
     base_processor = make_processor(input_dir, output_dir, whisper, diarizer, config)
     artifact_resolver = ArtifactResolver(output_dir)
-
     def process(request: JobEnvelope) -> ResultEnvelope:
         if request.stage != "embeddings":
             result = base_processor(request)
@@ -119,16 +105,13 @@ def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedd
             raise ExchangeError("embeddings request requires input_artifact_id")
         manifest = artifact_resolver.resolve(request.input_artifact_id)
         if manifest.stage != "diarization" or manifest.kind != "json":
-            raise ExchangeError(
-                f"embeddings input artifact must be a diarization json artifact, got {manifest.stage}/{manifest.kind}"
-            )
+            raise ExchangeError(f"embeddings input artifact must be a diarization json artifact, got {manifest.stage}/{manifest.kind}")
         diarized_json = artifact_resolver.resolve_path(request.input_artifact_id)
         audio = artifact_resolver.resolve_path(f"{request.recording_id}:normalize:audio")
         embeddings = extract_and_persist(audio=audio, diarized_json=diarized_json, output_dir=output_dir / request.recording_id / "embeddings", recording_id=request.recording_id, model=embedder, config=embedding_config)
         if not embeddings:
             raise RuntimeError(f"no usable speaker segments for {request.recording_id}")
         return ResultEnvelope(request.job_id, "completed", artifact_id=f"{request.recording_id}:embeddings:json", worker=request.worker, lease_id=request.lease_id)
-
     return process
 
 

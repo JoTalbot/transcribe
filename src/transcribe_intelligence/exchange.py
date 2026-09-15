@@ -12,7 +12,6 @@ class JobEnvelope:
     recording_id: str
     stage: str
     input_artifact_id: str | None = None
-    input_artifact_ids: tuple[str, ...] = ()
     input_path: str | None = None
     worker: str | None = None
     lease_id: str | None = None
