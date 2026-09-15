@@ -137,20 +137,20 @@ class ExchangeCoordinator:
 
             complete = getattr(self.repository, "complete", None)
             fail = getattr(self.repository, "fail", None)
-            if callable(complete) and callable(fail):
+            if result.status == "completed" and callable(complete):
                 if result.worker != job.worker or result.lease_id != job.lease_id:
                     self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
                     continue
-                if result.status == "completed":
-                    if not result.artifact_id:
-                        self.quarantine_result(path, "completed result requires artifact_id")
-                        continue
-                    complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
-                elif result.status == "failed":
-                    fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
-                else:
-                    self.quarantine_result(path, "result status must be completed or failed")
+                if not result.artifact_id:
+                    self.quarantine_result(path, "completed result requires artifact_id")
                     continue
+                complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                changed += 1
+            elif result.status == "failed" and callable(fail):
+                if result.worker != job.worker or result.lease_id != job.lease_id:
+                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
+                    continue
+                fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
                 changed += 1
             else:
                 try:
