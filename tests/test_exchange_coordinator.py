@@ -204,14 +204,16 @@ def test_default_routing_sends_asr_to_colab_gpu(tmp_path: Path):
     repository = InMemoryRepository()
     repository.put_recording(Recording("rec-default-asr", "/audio/default.wav"))
     ingest_id = stable_job_id("rec-default-asr", "ingest")
+    normalize_id = stable_job_id("rec-default-asr", "normalize")
     asr_id = stable_job_id("rec-default-asr", "asr")
     repository.put_job(ExecutionJob(ingest_id, "rec-default-asr", "ingest", "completed", artifact_id="rec-default-asr:ingest:json"))
+    repository.put_job(ExecutionJob(normalize_id, "rec-default-asr", "normalize", "completed", artifact_id="rec-default-asr:normalize:audio"))
     repository.put_job(ExecutionJob(asr_id, "rec-default-asr", "asr"))
     exchange = FileExchange(tmp_path / "exchange")
     dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready("rec-default-asr")
     assert [item.job_id for item in dispatches] == [asr_id]
     assert repository.get_job(asr_id).worker == COLAB_GPU.worker
-    assert exchange.get_request(asr_id).input_artifact_id == "rec-default-asr:ingest:json"
+    assert exchange.get_request(asr_id).input_artifact_id == "rec-default-asr:normalize:audio"
 
 
 def test_default_routing_sends_text_analysis_to_oracle_local(tmp_path: Path):
