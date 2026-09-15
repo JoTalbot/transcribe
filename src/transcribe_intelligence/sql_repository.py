@@ -146,7 +146,9 @@ class SqlRepository(Repository):
         try:
             cursor = self.connection.cursor()
             cursor.execute(sql, parameters)
-            return cursor.fetchone()
+            row = cursor.fetchone()
+            self.connection.commit()
+            return row
         except Exception:
             self.connection.rollback()
             raise
@@ -155,7 +157,9 @@ class SqlRepository(Repository):
         try:
             cursor = self.connection.cursor()
             cursor.execute(sql, parameters)
-            return cursor.fetchall()
+            rows = cursor.fetchall()
+            self.connection.commit()
+            return rows
         except Exception:
             self.connection.rollback()
             raise
