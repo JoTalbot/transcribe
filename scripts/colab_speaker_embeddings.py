@@ -68,14 +68,26 @@ def build_speechbrain_embedder(model: Any, target_sample_rate: int = 16000):
     import torch
     import torchaudio
 
+    waveform_cache: dict[tuple[str, int], tuple[Any, int]] = {}
+
     def embed(audio: Path, start: float, end: float) -> tuple[float, ...]:
-        waveform, sample_rate = torchaudio.load(str(audio))
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-        if sample_rate != target_sample_rate:
-            waveform = torchaudio.functional.resample(waveform, sample_rate, target_sample_rate)
-        left = max(0, int(round(start * target_sample_rate)))
-        right = min(waveform.shape[-1], int(round(end * target_sample_rate)))
+        cache_key = (str(audio.resolve()), target_sample_rate)
+        cached = waveform_cache.get(cache_key)
+        if cached is None:
+            waveform, sample_rate = torchaudio.load(str(audio))
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0, keepdim=True)
+            if sample_rate != target_sample_rate:
+                waveform = torchaudio.functional.resample(
+                    waveform, sample_rate, target_sample_rate
+                )
+                sample_rate = target_sample_rate
+            cached = (waveform, sample_rate)
+            waveform_cache[cache_key] = cached
+
+        waveform, sample_rate = cached
+        left = max(0, int(round(start * sample_rate)))
+        right = min(waveform.shape[-1], int(round(end * sample_rate)))
         if right <= left:
             raise ValueError(f"empty audio segment {start}-{end}")
         chunk = waveform[:, left:right]
