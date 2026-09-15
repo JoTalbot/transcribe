@@ -57,6 +57,12 @@ def _seed(repo: SqlRepository, job_id: str = "r:asr") -> None:
     repo.put_job(ExecutionJob(job_id, "r", "asr"))
 
 
+def _seed_exchange_pipeline(repo: SqlRepository) -> None:
+    _seed(repo, "r:ingest")
+    repo.put_job(ExecutionJob("r:normalize", "r", "normalize"))
+    repo.put_job(ExecutionJob("r:asr", "r", "asr"))
+
+
 def _wait_for_reclaim(repo: SqlRepository, job_id: str, worker: str, timeout: float = 5.0) -> ExecutionJob:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -127,6 +133,7 @@ def test_reclaimed_lease_rejects_stale_worker_completion(postgres_database) -> N
 
     second = _repository(postgres_database)
     try:
+        time.sleep(1.05)
         claimed_b = _wait_for_reclaim(second, "r:asr", "worker-b")
         assert claimed_b.lease_id != claimed_a.lease_id
 
@@ -171,6 +178,7 @@ def test_expired_lease_is_recovered_to_retry(postgres_database) -> None:
 
     recovery = _repository(postgres_database)
     try:
+        time.sleep(1.05)
         _wait_for_recovery(recovery, max_attempts=3, expected=(1, 0))
         recovered = recovery.get_job("r:asr")
         assert recovered is not None
@@ -192,6 +200,7 @@ def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
 
     recovery = _repository(postgres_database)
     try:
+        time.sleep(1.05)
         _wait_for_recovery(recovery, max_attempts=1, expected=(0, 1))
         failed = recovery.get_job("r:asr")
         assert failed is not None
@@ -206,29 +215,29 @@ def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
 def test_exchange_accepts_current_lease_and_quarantines_reclaimed_worker_result(postgres_database, tmp_path: Path) -> None:
     repository = _repository(postgres_database)
     try:
-        _seed(repository)
+        _seed_exchange_pipeline(repository)
         exchange = FileExchange(tmp_path / "exchange")
         coordinator = ExchangeCoordinator(repository, exchange)
 
         first = coordinator.dispatch_ready("r", worker="worker-a")
         assert len(first) == 1
-        request = exchange.get_request("r:asr")
+        request = exchange.get_request("r:ingest")
         assert request.worker == "worker-a"
         assert request.lease_id
         stale_lease = request.lease_id
-        request_path = exchange.requests / "r:asr.json"
+        request_path = exchange.requests / "r:ingest.json"
         request_path.unlink()
 
-        reclaimed = _wait_for_reclaim(repository, "r:asr", "worker-b")
+        reclaimed = _wait_for_reclaim(repository, "r:ingest", "worker-b")
         assert reclaimed.lease_id != stale_lease
 
-        exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="stale", worker="worker-a", lease_id=stale_lease))
+        exchange.put_result(ResultEnvelope("r:ingest", "completed", artifact_id="stale", worker="worker-a", lease_id=stale_lease))
         assert coordinator.apply_results() == 0
-        assert (exchange.results / "quarantine" / "r:asr.json").exists()
+        assert (exchange.results / "quarantine" / "r:ingest.json").exists()
 
-        exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="fresh", worker="worker-b", lease_id=reclaimed.lease_id))
+        exchange.put_result(ResultEnvelope("r:ingest", "completed", artifact_id="fresh", worker="worker-b", lease_id=reclaimed.lease_id))
         assert coordinator.apply_results() == 1
-        assert repository.get_job("r:asr").status == "completed"
-        assert repository.get_job("r:asr").artifact_id == "fresh"
+        assert repository.get_job("r:ingest").status == "completed"
+        assert repository.get_job("r:ingest").artifact_id == "fresh"
     finally:
         _close_repository(repository)
