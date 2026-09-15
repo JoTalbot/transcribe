@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .artifact_resolver import ArtifactResolver
+from .artifact_resolver import ArtifactResolutionError, ArtifactResolver
 from .artifacts import ArtifactManifest, build_manifest, write_manifest
 from .exchange import ExchangeError, JobEnvelope, ResultEnvelope
 
