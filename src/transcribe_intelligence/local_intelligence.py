@@ -118,7 +118,18 @@ class LocalIntelligenceProcessor:
             embeddings = json.loads(embeddings_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ExchangeError("invalid embeddings artifact") from exc
-        speakers = sorted({str(value.get("speaker")) for value in embeddings.get("embeddings", {}).values() if value.get("speaker")})
+        raw_embeddings = embeddings.get("embeddings", [])
+        if isinstance(raw_embeddings, dict):
+            embedding_items = raw_embeddings.values()
+        elif isinstance(raw_embeddings, list):
+            embedding_items = raw_embeddings
+        else:
+            raise ExchangeError("embeddings artifact must contain an embeddings array or object")
+        speakers = sorted({
+            str(value.get("speaker"))
+            for value in embedding_items
+            if isinstance(value, dict) and value.get("speaker")
+        })
         links = [
             {"link_id": f"{topic['topic_id']}:{speaker}", "topic_id": topic["topic_id"], "speaker": speaker, "confidence": topic["score"]}
             for topic in topics.get("topics", [])
@@ -152,7 +163,7 @@ class LocalIntelligenceProcessor:
             "nodes": [nodes[key] for key in sorted(nodes)],
             "edges": sorted(edges, key=lambda item: (item["source"], item["target"])),
         })
-        return ResultEnvelope(request.job_id, "completed", artifact_id=artifact_id, worker=request.worker, lease_id=request.lease_id)
+        return artifact_id
 
     def process(self, request: JobEnvelope) -> ResultEnvelope:
         handlers = {
