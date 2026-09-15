@@ -157,6 +157,31 @@ def test_apply_results_propagates_repository_runtime_error_and_keeps_result(tmp_
     assert not (exchange.results / "quarantine" / result_path.name).exists()
 
 
+def test_apply_results_quarantines_result_when_lease_is_lost_during_completion(tmp_path: Path):
+    class RacedRepository(InMemoryRepository):
+        def complete(self, job_id: str, worker: str, lease_id: str, artifact_id: str):
+            self.update_job(ExecutionJob(job_id, "rec-race", "ingest", "running", attempt=2, worker="worker-b", lease_id="fresh-lease"))
+            raise RuntimeError("lease completion rejected")
+    repository = RacedRepository()
+    repository.put_recording(Recording("rec-race", "/audio/race.wav"))
+    job_id = stable_job_id("rec-race", "ingest")
+    repository.put_job(ExecutionJob(job_id, "rec-race", "ingest", "running", attempt=1, worker="worker-a", lease_id="stale-lease"))
+    exchange = FileExchange(tmp_path / "exchange")
+    result_path = exchange.put_result(ResultEnvelope(job_id, "completed", artifact_id="stale-artifact", worker="worker-a", lease_id="stale-lease"))
+
+    changed = ExchangeCoordinator(repository, exchange).apply_results()
+
+    assert changed == 0
+    assert not result_path.exists()
+    quarantined = exchange.results / "quarantine" / result_path.name
+    assert quarantined.exists()
+    assert "stale or foreign result" in quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
+    current = repository.get_job(job_id)
+    assert current is not None
+    assert current.worker == "worker-b"
+    assert current.lease_id == "fresh-lease"
+
+
 def test_ready_jobs_is_deterministic_and_ignores_running_jobs():
     jobs = [ExecutionJob("b", "rec", "normalize"), ExecutionJob("a", "rec", "ingest"), ExecutionJob("c", "rec", "asr", "running")]
     ready = ready_jobs(jobs)
