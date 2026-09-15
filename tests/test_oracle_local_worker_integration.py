@@ -9,6 +9,7 @@ from transcribe_intelligence.local_processors import LocalAudioProcessor
 
 
 def _run(exchange: FileExchange, request: JobEnvelope, audio: LocalAudioProcessor, intelligence: LocalIntelligenceProcessor) -> str:
+    exchange.put_request(request)
     result = process_one(exchange, request.job_id, audio, intelligence)
     assert result is not None
     assert result.status == "completed", result.error
