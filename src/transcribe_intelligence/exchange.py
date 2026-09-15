@@ -12,9 +12,15 @@ class JobEnvelope:
     recording_id: str
     stage: str
     input_artifact_id: str | None = None
+    input_artifact_ids: tuple[str, ...] = ()
     input_path: str | None = None
     worker: str | None = None
     lease_id: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "input_artifact_ids", tuple(self.input_artifact_ids))
+        if self.input_artifact_id is None and self.input_artifact_ids:
+            object.__setattr__(self, "input_artifact_id", self.input_artifact_ids[0])
 
 
 @dataclass(frozen=True, slots=True)
