@@ -115,7 +115,6 @@ def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedd
         if request.stage != "embeddings":
             result = base_processor(request)
             return ResultEnvelope(result.job_id, result.status, result.artifact_id, result.error, request.worker, request.lease_id)
-        audio = resolve_audio(input_dir, request)
         if not request.input_artifact_id:
             raise ExchangeError("embeddings request requires input_artifact_id")
         manifest = artifact_resolver.resolve(request.input_artifact_id)
@@ -124,6 +123,7 @@ def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedd
                 f"embeddings input artifact must be a diarization json artifact, got {manifest.stage}/{manifest.kind}"
             )
         diarized_json = artifact_resolver.resolve_path(request.input_artifact_id)
+        audio = artifact_resolver.resolve_path(f"{request.recording_id}:normalize:audio")
         embeddings = extract_and_persist(audio=audio, diarized_json=diarized_json, output_dir=output_dir / request.recording_id / "embeddings", recording_id=request.recording_id, model=embedder, config=embedding_config)
         if not embeddings:
             raise RuntimeError(f"no usable speaker segments for {request.recording_id}")
@@ -136,7 +136,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.getenv("TRANSCRIBE_EXCHANGE_ROOT", "/content/drive/MyDrive/transcribe/exchange"))
     parser.add_argument("--input", default=os.getenv("TRANSCRIBE_INPUT_ROOT", "/content/drive/MyDrive/transcribe/input"))
-    parser.add_argument("--output", default=os.getenv("TRANSCRIBE_OUTPUT_ROOT", "/content/drive/MyDrive/transcribe/output"))
+    parser.add_argument("--output", default=os.getenv("TRANSCRIBE_OUTPUT_ROOT", "/content/drive/MyDrive/transcribe/exchange/artifacts"))
     parser.add_argument("--poll", type=int, default=int(os.getenv("TRANSCRIBE_EXCHANGE_POLL", "30")))
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
