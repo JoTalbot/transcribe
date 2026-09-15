@@ -104,14 +104,13 @@ class LeaseHarnessRepository(InMemoryRepository):
 
 
 class StubProcessor:
-    def __init__(self, output_prefix: str):
-        self.output_prefix = output_prefix
+    """CPU-only stand-in for inference while exercising the real worker entrypoint."""
 
     def process(self, request):
         return ResultEnvelope(
             request.job_id,
             "completed",
-            artifact_id=f"{self.output_prefix}:{request.recording_id}:{request.stage}:artifact",
+            artifact_id=f"{request.recording_id}:{request.stage}:artifact",
         )
 
 
@@ -128,8 +127,8 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
         exchange,
         worker_capabilities={ORACLE_LOCAL.worker: ORACLE_LOCAL, COLAB_GPU.worker: COLAB_GPU},
     )
-    oracle_audio = StubProcessor("oracle-audio")
-    oracle_intelligence = StubProcessor("oracle-intelligence")
+    oracle_audio = StubProcessor()
+    oracle_intelligence = StubProcessor()
 
     expected_workers = {
         Stage.INGEST: ORACLE_LOCAL.worker,
