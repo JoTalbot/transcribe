@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.colab_exchange_worker import dry_run_processor, process_one as process_colab_one
+from scripts.colab_exchange_worker import process_one as process_colab_one
 from scripts.oracle_local_worker import process_one as process_oracle_one
 from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
@@ -114,6 +114,15 @@ class StubProcessor:
         )
 
 
+def canonical_colab_dry_run_processor(request):
+    """Dry-run Colab processor that emits the same canonical IDs as a real worker."""
+    return ResultEnvelope(
+        request.job_id,
+        "completed",
+        artifact_id=f"{request.recording_id}:{request.stage}:artifact",
+    )
+
+
 def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Path):
     repository = LeaseHarnessRepository()
     recording_id = "rec-cross-worker"
@@ -155,7 +164,7 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
                 if request.worker == ORACLE_LOCAL.worker:
                     result = process_oracle_one(exchange, request.job_id, oracle_audio, oracle_intelligence)
                 else:
-                    result = process_colab_one(exchange, request.job_id, dry_run_processor)
+                    result = process_colab_one(exchange, request.job_id, canonical_colab_dry_run_processor)
                 assert result is not None
             continue
         if all(repository.get_job(stable_job_id(recording_id, stage.value)).status == "completed" for stage in Stage):
