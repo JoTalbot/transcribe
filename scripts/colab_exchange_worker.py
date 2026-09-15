@@ -118,12 +118,12 @@ def build_processor(input_dir: Path, output_dir: Path, whisper, diarizer, embedd
         audio = resolve_audio(input_dir, request)
         if not request.input_artifact_id:
             raise ExchangeError("embeddings request requires input_artifact_id")
-        diarized_json = artifact_resolver.resolve_path(request.input_artifact_id)
         manifest = artifact_resolver.resolve(request.input_artifact_id)
-        if manifest.stage != "diarization" or manifest.kind != "diarization":
+        if manifest.stage != "diarization" or manifest.kind != "json":
             raise ExchangeError(
-                f"embeddings input artifact must be a diarization artifact, got {manifest.stage}/{manifest.kind}"
+                f"embeddings input artifact must be a diarization json artifact, got {manifest.stage}/{manifest.kind}"
             )
+        diarized_json = artifact_resolver.resolve_path(request.input_artifact_id)
         embeddings = extract_and_persist(audio=audio, diarized_json=diarized_json, output_dir=output_dir / request.recording_id / "embeddings", recording_id=request.recording_id, model=embedder, config=embedding_config)
         if not embeddings:
             raise RuntimeError(f"no usable speaker segments for {request.recording_id}")
