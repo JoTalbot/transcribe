@@ -26,7 +26,9 @@ def new_lease(job_id: str, worker: str, lease_seconds: int = 3600) -> Lease:
 CLAIM_SQL = """
 WITH candidate AS (
     SELECT job_id FROM execution_jobs
-    WHERE status IN ('queued', 'retry') AND (lease_until IS NULL OR lease_until <= NOW())
+    WHERE status IN ('queued', 'retry')
+      AND (lease_until IS NULL OR lease_until <= NOW())
+       OR status = 'running' AND lease_until <= NOW()
     ORDER BY recording_id, stage, job_id FOR UPDATE SKIP LOCKED LIMIT 1
 )
 UPDATE execution_jobs AS j
@@ -43,8 +45,12 @@ UPDATE execution_jobs
 SET status = 'running', attempt = attempt + 1, worker = %s,
     lease_id = %s, lease_until = NOW() + (%s * INTERVAL '1 second'),
     heartbeat_at = NOW(), error = NULL, updated_at = NOW()
-WHERE job_id = %s AND status IN ('queued', 'retry')
-  AND (lease_until IS NULL OR lease_until <= NOW())
+WHERE job_id = %s
+  AND (
+      status IN ('queued', 'retry')
+      AND (lease_until IS NULL OR lease_until <= NOW())
+      OR status = 'running' AND lease_until <= NOW()
+  )
 RETURNING job_id, recording_id, stage, status, attempt,
           artifact_id, worker, error, updated_at, lease_id, lease_until, heartbeat_at
 """
