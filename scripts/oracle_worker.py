@@ -7,6 +7,7 @@ and dispatches ready jobs. No legacy JobStore state is used here.
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import time
 from pathlib import Path
@@ -56,10 +57,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--exchange", type=Path, default=Path("exchange"))
-    parser.add_argument("--worker", default="oracle-1")
+    parser.add_argument("--worker", default=os.getenv("TRANSCRIBE_WORKER", "oracle-1"))
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--interval", type=float, default=15.0)
-    parser.add_argument("--database-url")
+    parser.add_argument("--database-url", default=os.getenv("TRANSCRIBE_DATABASE_URL"))
     parser.add_argument("--once", action="store_true", help="run one scheduling cycle and exit")
     args = parser.parse_args()
 
