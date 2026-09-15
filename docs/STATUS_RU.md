@@ -1,6 +1,6 @@
 # Статус проекта Transcribe
 
-Дата проверки: 2026-09-14
+Дата проверки: 2026-09-15
 
 ## Текущее состояние
 
@@ -22,6 +22,10 @@
 - Worker tests соответствуют обязательному `worker + lease_id` протоколу.
 - Exchange result application работает через канонический PostgreSQL repository и lease-aware `ExchangeCoordinator`, а не через новый пустой `InMemoryRepository`.
 - Production bootstrap очереди больше не пишет `state/jobs.json`: `scripts/run_pipeline.py` создаёт recordings и stable stage jobs непосредственно в PostgreSQL.
+- Добавлен отдельный `scripts/oracle_worker.py` как production entrypoint устойчивого Oracle-оркестратора: каждый цикл использует свежий PostgreSQL connection, применяет результаты, reclaim просроченных lease и dispatch через существующий `Scheduler`/`ExchangeCoordinator`.
+- Oracle worker не использует legacy `JobStore`, поддерживает `--once`, периодический режим и корректное завершение по `SIGINT`/`SIGTERM`.
+- Добавлены тесты управления циклом Oracle worker и проверки положительного интервала.
+- README синхронизирован с новым Oracle daemon entrypoint.
 
 ## Последние исправления
 
@@ -33,19 +37,21 @@
 6. Исправлен production result application: `scripts/apply_exchange_results.py` больше не применяет результаты к эфемерному `InMemoryRepository`; теперь он требует `TRANSCRIBE_DATABASE_URL` или `--database-url` и применяет результаты через PostgreSQL lease ownership.
 7. Исправлен production bootstrap: `scripts/run_pipeline.py` переведён на PostgreSQL canonical state, добавлена проверка конфликтующего `recording_id -> path`, а создание stage jobs стало идемпотентным через `SqlRepository.put_job`.
 8. README синхронизирован с новым PostgreSQL-only queue bootstrap и убраны устаревшие аргументы `--jobs` из production-команды dispatch.
+9. Добавлен Oracle scheduler daemon поверх уже проверенного lease-aware пути. Важное разделение сохранено: Oracle оркестрирует и выдаёт jobs, Colab выполняет GPU inference.
 
 ## CI
 
-Для последних изменений GitHub Actions должен завершить новый push-triggered запуск `Validate`. До получения фактического успешного результата нельзя объявлять проект CI-green.
+После изменений `scripts/oracle_worker.py`, тестов и README GitHub Actions должен завершить новый push-triggered запуск `Validate`. До получения фактического успешного результата нельзя объявлять проект CI-green.
 
 ## Следующий production gate
 
-1. Получить успешный полный CI после текущих исправлений.
+1. Получить успешный полный CI после добавления Oracle worker.
 2. Если CI найдёт ошибку, исправить её в репозитории и повторить проверку.
-3. Проверить реальные production entrypoints Oracle/Colab и убедиться, что они используют lease-aware coordinator/repository, а не legacy `JobStore` dispatch.
-4. Проверить, что все оставшиеся вызовы `JobStore` ограничены legacy/local тестовой инфраструктурой и не участвуют в production orchestration.
-5. После подтверждения безопасного пути выполнить dry-run без пользовательского production-аудио.
-6. Затем выполнить ограниченный production smoke test.
+3. Проверить реальный запуск Oracle daemon на ARM Ubuntu с PostgreSQL и exchange directory без production-аудио.
+4. Проверить реальный Colab exchange worker на тестовом job и lease ownership.
+5. Проверить, что оставшиеся вызовы `JobStore` ограничены legacy/local тестовой инфраструктурой и не участвуют в production orchestration.
+6. Выполнить dry-run полного Oracle → exchange → Colab пути без пользовательского production-аудио.
+7. Затем выполнить ограниченный production smoke test.
 
 ## Ограничение
 
