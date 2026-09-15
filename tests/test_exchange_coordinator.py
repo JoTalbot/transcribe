@@ -5,7 +5,9 @@ import pytest
 from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator, ready_jobs
 from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
+from transcribe_intelligence.pipeline_contract import Stage
 from transcribe_intelligence.repository import InMemoryRepository, Recording
+from transcribe_intelligence.worker_capabilities import COLAB_GPU, ORACLE_LOCAL
 
 
 def test_dispatches_first_stage_and_marks_running(tmp_path: Path):
@@ -185,3 +187,43 @@ def test_ready_jobs_is_deterministic_and_ignores_running_jobs():
     ]
     ready = ready_jobs(jobs)
     assert [job.job_id for job in ready] == ["a"]
+
+
+def test_capability_routing_skips_unsupported_colab_stage(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-cap", "/audio/cap.wav"))
+    ingest_id = stable_job_id("rec-cap", "ingest")
+    repository.put_job(ExecutionJob(ingest_id, "rec-cap", "ingest"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    coordinator = ExchangeCoordinator(
+        repository,
+        exchange,
+        worker_capabilities={COLAB_GPU.worker: COLAB_GPU},
+        stage_workers={Stage.INGEST: COLAB_GPU.worker},
+    )
+
+    assert coordinator.dispatch_ready("rec-cap") == []
+    assert repository.get_job(ingest_id).status == "queued"
+    assert not (exchange.requests / f"{ingest_id}.json").exists()
+
+
+def test_capability_routing_selects_worker_for_supported_stage(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-route", "/audio/route.wav"))
+    ingest_id = stable_job_id("rec-route", "ingest")
+    repository.put_job(ExecutionJob(ingest_id, "rec-route", "ingest"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    coordinator = ExchangeCoordinator(
+        repository,
+        exchange,
+        worker_capabilities={ORACLE_LOCAL.worker: ORACLE_LOCAL},
+        stage_workers={Stage.INGEST: ORACLE_LOCAL.worker},
+    )
+
+    dispatches = coordinator.dispatch_ready("rec-route")
+
+    assert [item.job_id for item in dispatches] == [ingest_id]
+    assert repository.get_job(ingest_id).worker == ORACLE_LOCAL.worker
+    assert exchange.get_request(ingest_id).worker == ORACLE_LOCAL.worker
