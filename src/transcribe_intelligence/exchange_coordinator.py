@@ -10,7 +10,7 @@ from .job_store import ExecutionJob
 from .pipeline_contract import Stage
 from .repository import Repository
 from .result_service import apply_result
-from .worker_capabilities import DEFAULT_STAGE_WORKERS, DEFAULT_WORKER_CAPABILITIES, WorkerCapabilities
+from .worker_capabilities import DEFAULT_STAGE_WORKERS, WorkerCapabilities
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,30 +24,14 @@ class Dispatch:
 class ExchangeCoordinator:
     """Drive one deterministic exchange cycle against a canonical repository."""
 
-    def __init__(
-        self,
-        repository: Repository,
-        exchange: FileExchange,
-        worker_capabilities: dict[str, WorkerCapabilities] | None = None,
-        stage_workers: dict[Stage | str, str] | None = None,
-    ):
+    def __init__(self, repository: Repository, exchange: FileExchange, worker_capabilities: dict[str, WorkerCapabilities] | None = None, stage_workers: dict[Stage | str, str] | None = None):
         self.repository = repository
         self.exchange = exchange
         self.worker_capabilities = worker_capabilities
-        self.stage_workers = {
-            stage if isinstance(stage, Stage) else Stage(stage): worker
-            for stage, worker in (stage_workers or {}).items()
-        }
+        self.stage_workers = {stage if isinstance(stage, Stage) else Stage(stage): worker for stage, worker in (stage_workers or {}).items()}
 
     def _exchange_has_job(self, job_id: str) -> bool:
-        return any(
-            path.exists()
-            for path in (
-                self.exchange.requests / f"{job_id}.json",
-                self.exchange.results / f"{job_id}.json",
-                self.exchange.root / "processing" / f"{job_id}.json",
-            )
-        )
+        return any(path.exists() for path in (self.exchange.requests / f"{job_id}.json", self.exchange.results / f"{job_id}.json", self.exchange.root / "processing" / f"{job_id}.json"))
 
     def _claim(self, job: ExecutionJob, worker: str) -> ExecutionJob | None:
         claim_job = getattr(self.repository, "claim_job", None)
@@ -56,42 +40,24 @@ class ExchangeCoordinator:
         return self.repository.update_job(job.next_attempt(worker))
 
     def _release(self, job: ExecutionJob, error: str) -> None:
-        """Return a claimed job to retry without leaving a long-lived lease."""
         release = getattr(self.repository, "release", None)
         if callable(release) and job.worker and job.lease_id:
             release(job.job_id, job.worker, job.lease_id, error)
             return
-        self.repository.update_job(
-            ExecutionJob(
-                job.job_id,
-                job.recording_id,
-                job.stage,
-                "retry",
-                job.attempt,
-                job.artifact_id,
-                None,
-                error,
-                job.updated_at,
-                None,
-                None,
-                None,
-            )
-        )
+        self.repository.update_job(ExecutionJob(job.job_id, job.recording_id, job.stage, "retry", job.attempt, job.artifact_id, None, error, job.updated_at, None, None, None))
 
     def _target_worker(self, stage: Stage, fallback: str) -> str | None:
-        """Resolve an explicit route or a deterministic capable default."""
         explicit = self.stage_workers.get(stage)
         if explicit is not None:
             if self.worker_capabilities is None:
                 return explicit
             capabilities = self.worker_capabilities.get(explicit)
             return explicit if capabilities is not None and capabilities.supports(stage) else None
-
         if fallback == "colab":
-            if self.worker_capabilities is None:
-                return DEFAULT_STAGE_WORKERS.get(stage)
             candidates = self.worker_capabilities
             default_worker = DEFAULT_STAGE_WORKERS.get(stage)
+            if candidates is None:
+                return default_worker
             if default_worker is not None:
                 capabilities = candidates.get(default_worker)
                 if capabilities is not None and capabilities.supports(stage):
@@ -100,7 +66,6 @@ class ExchangeCoordinator:
                 if candidates[worker_name].supports(stage):
                     return worker_name
             return None
-
         if self.worker_capabilities is None:
             return fallback
         capabilities = self.worker_capabilities.get(fallback)
@@ -131,16 +96,7 @@ class ExchangeCoordinator:
                 continue
             input_artifact_ids = tuple(completed[stage_name] for stage_name in required)
             input_artifact_id = input_artifact_ids[0] if input_artifact_ids else None
-            request = JobEnvelope(
-                job_id=running.job_id,
-                recording_id=running.recording_id,
-                stage=running.stage,
-                input_artifact_id=input_artifact_id,
-                input_artifact_ids=input_artifact_ids,
-                input_path=recording.input_path if not input_artifact_ids else None,
-                worker=running.worker,
-                lease_id=running.lease_id,
-            )
+            request = JobEnvelope(job_id=running.job_id, recording_id=running.recording_id, stage=running.stage, input_artifact_id=input_artifact_id, input_artifact_ids=input_artifact_ids, input_path=recording.input_path if not input_artifact_ids else None, worker=running.worker, lease_id=running.lease_id)
             try:
                 path = self.exchange.put_request(request)
             except Exception as exc:
@@ -158,8 +114,7 @@ class ExchangeCoordinator:
             if not worker or not job.lease_id:
                 raise ValueError("worker and persisted lease_id are required")
             return heartbeat(job_id, worker, job.lease_id)
-        refreshed = job.heartbeat(worker)
-        return self.repository.update_job(refreshed)
+        return self.repository.update_job(job.heartbeat(worker))
 
     def quarantine_result(self, path: Path, reason: str) -> Path:
         quarantine = self.exchange.results / "quarantine"
@@ -180,11 +135,9 @@ class ExchangeCoordinator:
             except (ExchangeError, KeyError, ValueError) as exc:
                 self.quarantine_result(path, str(exc))
                 continue
-
             if job is None:
                 self.quarantine_result(path, f"unknown job: {result.job_id}")
                 continue
-
             complete = getattr(self.repository, "complete", None)
             fail = getattr(self.repository, "fail", None)
             if result.status == "completed" and callable(complete):
