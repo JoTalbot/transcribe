@@ -7,8 +7,10 @@ from pathlib import Path
 from .dependencies import dependencies
 from .exchange import ExchangeError, FileExchange, JobEnvelope
 from .job_store import ExecutionJob
+from .pipeline_contract import Stage
 from .repository import Repository
 from .result_service import apply_result
+from .worker_capabilities import WorkerCapabilities
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,9 +24,20 @@ class Dispatch:
 class ExchangeCoordinator:
     """Drive one deterministic exchange cycle against a canonical repository."""
 
-    def __init__(self, repository: Repository, exchange: FileExchange):
+    def __init__(
+        self,
+        repository: Repository,
+        exchange: FileExchange,
+        worker_capabilities: dict[str, WorkerCapabilities] | None = None,
+        stage_workers: dict[Stage | str, str] | None = None,
+    ):
         self.repository = repository
         self.exchange = exchange
+        self.worker_capabilities = worker_capabilities
+        self.stage_workers = {
+            stage if isinstance(stage, Stage) else Stage(stage): worker
+            for stage, worker in (stage_workers or {}).items()
+        }
 
     def _exchange_has_job(self, job_id: str) -> bool:
         return any(
@@ -65,6 +78,16 @@ class ExchangeCoordinator:
             )
         )
 
+    def _target_worker(self, stage: Stage, fallback: str) -> str | None:
+        """Resolve an explicit route and reject unknown/incompatible workers."""
+        if self.worker_capabilities is None:
+            return self.stage_workers.get(stage, fallback)
+        worker = self.stage_workers.get(stage, fallback)
+        capabilities = self.worker_capabilities.get(worker)
+        if capabilities is None or not capabilities.supports(stage):
+            return None
+        return worker
+
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
         recording = self.repository.get_recording(recording_id)
         if recording is None:
@@ -75,10 +98,17 @@ class ExchangeCoordinator:
         for job in jobs:
             if job.status not in {"queued", "retry"}:
                 continue
-            required = dependencies(job.stage)
-            if not all(stage in completed for stage in required) or self._exchange_has_job(job.job_id):
+            try:
+                stage = Stage(job.stage)
+            except ValueError:
                 continue
-            running = self._claim(job, worker)
+            target_worker = self._target_worker(stage, worker)
+            if target_worker is None:
+                continue
+            required = dependencies(job.stage)
+            if not all(stage_name in completed for stage_name in required) or self._exchange_has_job(job.job_id):
+                continue
+            running = self._claim(job, target_worker)
             if running is None:
                 continue
             input_artifact_id = completed[required[0]] if required else None
