@@ -9,10 +9,14 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import sys
 import time
 from pathlib import Path
 from types import FrameType
 from typing import Callable
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.submit_exchange_jobs import dispatch_manifest, load_manifest
 from transcribe_intelligence.exchange import FileExchange
