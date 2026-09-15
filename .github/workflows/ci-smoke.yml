@@ -22,6 +22,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install package
+        run: python -m pip install -e .
       - name: Validate repository
         run: |
           python -m json.tool notebooks/transcribe_pipeline.ipynb >/dev/null
@@ -30,3 +34,5 @@ jobs:
           test -f scripts/sync_drive.py
           test -f scripts/colab_runner.py
           echo 'CI smoke validation passed.'
+      - name: Exercise Oracle-local worker
+        run: python -m pytest -q tests/test_oracle_local_worker.py
