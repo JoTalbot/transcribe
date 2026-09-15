@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from transcribe_intelligence.exchange import FileExchange, JobEnvelope
+from transcribe_intelligence.exchange import FileExchange
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
 from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
 from transcribe_intelligence.repository import InMemoryRepository, Recording
@@ -18,8 +18,9 @@ def test_stale_processing_marker_is_quarantined_and_retry_is_redispatched(tmp_pa
     processing.mkdir(parents=True)
     processing_file = processing / f"{job_id}.json"
     processing_file.write_text(
-        '{"job_id":"%s","recording_id":"%s","stage":"ingest","worker":"old-worker","lease_id":"expired"}\n'
-        % (job_id, recording_id),
+        '{"job_id":"{}","recording_id":"{}","stage":"ingest","worker":"old-worker","lease_id":"expired"}\n'.format(
+            job_id, recording_id
+        ),
         encoding="utf-8",
     )
 
