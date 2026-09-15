@@ -42,6 +42,29 @@ class ExchangeCoordinator:
             return claim_job(job.job_id, worker)
         return self.repository.update_job(job.next_attempt(worker))
 
+    def _release(self, job: ExecutionJob, error: str) -> None:
+        """Return a claimed job to retry without leaving a long-lived lease."""
+        release = getattr(self.repository, "release", None)
+        if callable(release) and job.worker and job.lease_id:
+            release(job.job_id, job.worker, job.lease_id, error)
+            return
+        self.repository.update_job(
+            ExecutionJob(
+                job.job_id,
+                job.recording_id,
+                job.stage,
+                "retry",
+                job.attempt,
+                job.artifact_id,
+                None,
+                error,
+                job.updated_at,
+                None,
+                None,
+                None,
+            )
+        )
+
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
         recording = self.repository.get_recording(recording_id)
         if recording is None:
@@ -68,7 +91,11 @@ class ExchangeCoordinator:
                 worker=running.worker,
                 lease_id=running.lease_id,
             )
-            path = self.exchange.put_request(request)
+            try:
+                path = self.exchange.put_request(request)
+            except Exception as exc:
+                self._release(running, f"exchange publish failed: {exc}")
+                continue
             dispatches.append(Dispatch(running.job_id, str(path)))
         return dispatches
 
