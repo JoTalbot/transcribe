@@ -10,7 +10,7 @@ from .job_store import ExecutionJob
 from .pipeline_contract import Stage
 from .repository import Repository
 from .result_service import apply_result
-from .worker_capabilities import DEFAULT_STAGE_WORKERS, DEFAULT_WORKER_CAPABILITIES, WorkerCapabilities
+from .worker_capabilities import DEFAULT_STAGE_WORKERS, WorkerCapabilities
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,10 +88,10 @@ class ExchangeCoordinator:
             return explicit if capabilities is not None and capabilities.supports(stage) else None
 
         if fallback == "colab":
-            if self.worker_capabilities is None:
-                return DEFAULT_STAGE_WORKERS.get(stage)
             candidates = self.worker_capabilities
             default_worker = DEFAULT_STAGE_WORKERS.get(stage)
+            if candidates is None:
+                return default_worker
             if default_worker is not None:
                 capabilities = candidates.get(default_worker)
                 if capabilities is not None and capabilities.supports(stage):
@@ -129,13 +129,15 @@ class ExchangeCoordinator:
             running = self._claim(job, target_worker)
             if running is None:
                 continue
-            input_artifact_id = completed[required[0]] if required else None
+            input_artifact_ids = tuple(completed[stage_name] for stage_name in required)
+            input_artifact_id = input_artifact_ids[0] if input_artifact_ids else None
             request = JobEnvelope(
                 job_id=running.job_id,
                 recording_id=running.recording_id,
                 stage=running.stage,
                 input_artifact_id=input_artifact_id,
-                input_path=recording.input_path if input_artifact_id is None else None,
+                input_artifact_ids=input_artifact_ids,
+                input_path=recording.input_path if not input_artifact_ids else None,
                 worker=running.worker,
                 lease_id=running.lease_id,
             )
