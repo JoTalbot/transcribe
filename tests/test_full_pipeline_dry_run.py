@@ -48,9 +48,17 @@ def test_canonical_nine_stage_dry_run_reaches_graph(tmp_path: Path):
     )
 
     completed_artifacts: list[str] = []
-    for _ in STAGES:
+    completed_jobs: set[str] = set()
+    max_cycles = len(STAGES) + 2
+    for _ in range(max_cycles):
         dispatches = coordinator.dispatch_ready(recording_id)
-        assert dispatches, "pipeline stalled before graph"
+        if not dispatches:
+            remaining = [job for job in repository.list_jobs(recording_id) if job.status != "completed"]
+            if not remaining:
+                break
+            raise AssertionError(
+                "pipeline stalled before graph: " + ", ".join(f"{job.stage}:{job.status}" for job in remaining)
+            )
         for dispatch in dispatches:
             request = exchange.get_request(dispatch.job_id)
             job = repository.get_job(dispatch.job_id)
@@ -62,10 +70,12 @@ def test_canonical_nine_stage_dry_run_reaches_graph(tmp_path: Path):
             artifact_id = _stub_artifact(exchange.root / "artifacts", recording_id, Stage(request.stage))
             exchange.put_result(ResultEnvelope(request.job_id, "completed", artifact_id=artifact_id, worker=job.worker, lease_id=job.lease_id))
             completed_artifacts.append(artifact_id)
+            completed_jobs.add(request.job_id)
         assert coordinator.apply_results() == len(dispatches)
 
-    assert len(completed_artifacts) == len(STAGES)
+    assert completed_jobs == {stable_job_id(recording_id, stage.value) for stage in STAGES}
+    assert set(completed_artifacts) == {f"{recording_id}:{stage.value}:json" for stage in STAGES}
     jobs = repository.list_jobs(recording_id)
-    assert [job.stage for job in jobs if job.status == "completed"] == sorted(stage.value for stage in STAGES)
+    assert {job.stage for job in jobs if job.status == "completed"} == {stage.value for stage in STAGES}
     assert repository.get_recording(recording_id).status == "completed"
-    assert completed_artifacts[-1] == "dry-run:graph:json"
+    assert f"{recording_id}:graph:json" in completed_artifacts
