@@ -15,6 +15,9 @@ class ColabJobRequest:
     recording_id: str
     stage: str
     input_artifact_id: str | None = None
+    input_artifact_ids: tuple[str, ...] = ()
+    worker: str | None = None
+    lease_id: str | None = None
 
 
 class ColabExecutionBackend:
@@ -30,7 +33,14 @@ class ColabExecutionBackend:
         self._submit = submit
 
     def execute(self, job: ExecutionJob) -> ExecutionResult:
-        request = ColabJobRequest(job.job_id, job.recording_id, job.stage, job.artifact_id)
+        request = ColabJobRequest(
+            job.job_id,
+            job.recording_id,
+            job.stage,
+            job.artifact_id,
+            worker=job.worker,
+            lease_id=job.lease_id,
+        )
         result = self._submit(request)
         if not isinstance(result, ExecutionResult):
             raise TypeError("Colab submitter must return ExecutionResult")
@@ -50,7 +60,17 @@ class FileColabSubmitter:
         self.timeout_seconds = timeout_seconds
 
     def __call__(self, request: ColabJobRequest) -> ExecutionResult:
-        self.exchange.put_request(JobEnvelope(request.job_id, request.recording_id, request.stage, request.input_artifact_id))
+        self.exchange.put_request(
+            JobEnvelope(
+                request.job_id,
+                request.recording_id,
+                request.stage,
+                request.input_artifact_id,
+                request.input_artifact_ids,
+                worker=request.worker,
+                lease_id=request.lease_id,
+            )
+        )
         deadline = time.monotonic() + self.timeout_seconds
         result_path = self.exchange.results / f"{request.job_id}.json"
         while time.monotonic() < deadline:
