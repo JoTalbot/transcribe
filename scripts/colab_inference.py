@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from transcribe_intelligence.artifact_resolver import ArtifactResolver
 from transcribe_intelligence.artifacts import ArtifactManifest, build_manifest, write_manifest
 from transcribe_intelligence.exchange import JobEnvelope, ResultEnvelope
 
@@ -35,8 +36,15 @@ def _assign_speaker(start: float, end: float, turns: list[tuple[float, float, st
     return max(scores, key=scores.get) if scores else "UNKNOWN"
 
 
-def resolve_audio(input_dir: Path, request: JobEnvelope) -> Path:
-    """Resolve audio from an explicit exchange path, then safe fallbacks."""
+def resolve_audio(input_dir: Path, request: JobEnvelope, artifact_root: Path | None = None) -> Path:
+    """Resolve audio from an artifact dependency or an explicit legacy path."""
+    if request.input_artifact_id and artifact_root is not None:
+        resolver = ArtifactResolver(artifact_root)
+        manifest = resolver.resolve(request.input_artifact_id)
+        if manifest.stage == "normalize" and manifest.kind == "audio_wav_pcm16_mono_16khz":
+            return resolver.resolve_path(request.input_artifact_id)
+        if manifest.stage == "ingest" and manifest.kind == "source_audio":
+            return resolver.resolve_path(request.input_artifact_id)
     if request.input_path:
         candidate = (input_dir / request.input_path).resolve()
         root = input_dir.resolve()
@@ -99,8 +107,8 @@ def transcribe_file(audio: Path, output_dir: Path, recording_id: str, config: In
     return [build_manifest(p, artifact_id=f"{recording_id}:{kind}", recording_id=recording_id, stage="diarization", kind=kind, producer="colab-whisper-pyannote", model_version=config.whisper_model) for kind, p in paths.items()]
 
 
-def diarize_asr_file(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, diarizer: Any) -> list[ArtifactManifest]:
-    asr_path = output_dir / f"{recording_id}.asr.json"
+def diarize_asr_file(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, diarizer: Any, asr_path: Path | None = None) -> list[ArtifactManifest]:
+    asr_path = asr_path or output_dir / f"{recording_id}.asr.json"
     if not asr_path.is_file():
         raise FileNotFoundError(f"ASR artifact not found: {asr_path}")
     payload = json.loads(asr_path.read_text(encoding="utf-8"))
@@ -122,16 +130,29 @@ def diarize_asr_file(audio: Path, output_dir: Path, recording_id: str, config: I
 
 
 def make_processor(input_dir: Path, output_dir: Path, whisper: Any, diarizer: Any, config: InferenceConfig = InferenceConfig()):
-    """Build an exchange processor with separate ASR and diarization stages."""
+    """Build an exchange processor with artifact-driven ASR and diarization."""
+    artifact_resolver = ArtifactResolver(output_dir)
+
     def process(request: JobEnvelope) -> ResultEnvelope:
-        audio = resolve_audio(input_dir, request)
         recording_dir = output_dir / request.recording_id
         if request.stage == "asr":
+            if not request.input_artifact_id:
+                raise ValueError("asr request requires input_artifact_id")
+            manifest = artifact_resolver.resolve(request.input_artifact_id)
+            if manifest.stage != "normalize" or manifest.kind != "audio_wav_pcm16_mono_16khz":
+                raise ValueError("asr input artifact must be normalized audio")
+            audio = artifact_resolver.resolve_path(request.input_artifact_id)
             manifests = transcribe_asr_file(audio, recording_dir, request.recording_id, config, whisper)
         elif request.stage == "diarization":
-            if not (recording_dir / f"{request.recording_id}.asr.json").is_file():
-                transcribe_asr_file(audio, recording_dir, request.recording_id, config, whisper)
-            manifests = diarize_asr_file(audio, recording_dir, request.recording_id, config, diarizer)
+            if not request.input_artifact_id:
+                raise ValueError("diarization request requires input_artifact_id")
+            asr_manifest = artifact_resolver.resolve(request.input_artifact_id)
+            if asr_manifest.stage != "asr" or asr_manifest.kind != "transcript":
+                raise ValueError("diarization input artifact must be an ASR transcript")
+            asr_path = artifact_resolver.resolve_path(request.input_artifact_id)
+            normalize_id = f"{request.recording_id}:normalize:audio"
+            audio = artifact_resolver.resolve_path(normalize_id)
+            manifests = diarize_asr_file(audio, recording_dir, request.recording_id, config, diarizer, asr_path)
         else:
             raise ValueError(f"unsupported inference stage: {request.stage}")
         for manifest in manifests:
