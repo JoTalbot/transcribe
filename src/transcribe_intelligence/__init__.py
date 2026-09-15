@@ -5,6 +5,7 @@ __all__ = [
     "api_contract",
     "artifact_registry",
     "artifacts",
+    "artifact_resolver",
     "colab_backend",
     "conversations",
     "dependencies",
