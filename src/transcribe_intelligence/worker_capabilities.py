@@ -27,7 +27,14 @@ COLAB_GPU = WorkerCapabilities(
 
 ORACLE_LOCAL = WorkerCapabilities(
     worker="oracle-local",
-    stages=frozenset({Stage.INGEST, Stage.NORMALIZE}),
+    stages=frozenset({
+        Stage.INGEST,
+        Stage.NORMALIZE,
+        Stage.TEXT_ANALYSIS,
+        Stage.TOPICS,
+        Stage.LINKING,
+        Stage.GRAPH,
+    }),
 )
 
 DEFAULT_WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
@@ -41,6 +48,10 @@ DEFAULT_STAGE_WORKERS: dict[Stage, str] = {
     Stage.ASR: COLAB_GPU.worker,
     Stage.DIARIZATION: COLAB_GPU.worker,
     Stage.EMBEDDINGS: COLAB_GPU.worker,
+    Stage.TEXT_ANALYSIS: ORACLE_LOCAL.worker,
+    Stage.TOPICS: ORACLE_LOCAL.worker,
+    Stage.LINKING: ORACLE_LOCAL.worker,
+    Stage.GRAPH: ORACLE_LOCAL.worker,
 }
 
 
