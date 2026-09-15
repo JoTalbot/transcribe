@@ -78,11 +78,6 @@ def dispatch_one_repository(
 
     try:
         result = backend.execute(job)
-        if result.job_id != job.job_id:
-            raise RuntimeError("backend returned a different job_id")
-        if result.status == "completed" and result.artifact_id:
-            return repository.complete(job.job_id, worker, job.lease_id, result.artifact_id)
-        return repository.fail(job.job_id, worker, job.lease_id, result.error or "backend did not complete the job")
     except Exception as exc:
         try:
             return repository.fail(job.job_id, worker, job.lease_id, str(exc))
@@ -90,3 +85,16 @@ def dispatch_one_repository(
             # The lease may have expired while the backend was running. Do not
             # overwrite a newer worker's state; the scheduler will recover it.
             raise exc
+
+    if result.job_id != job.job_id:
+        error = "backend returned a different job_id"
+        try:
+            repository.fail(job.job_id, worker, job.lease_id, error)
+        except RuntimeError:
+            # A lease may have been reclaimed while the invalid result was in flight.
+            pass
+        raise RuntimeError(error)
+
+    if result.status == "completed" and result.artifact_id:
+        return repository.complete(job.job_id, worker, job.lease_id, result.artifact_id)
+    return repository.fail(job.job_id, worker, job.lease_id, result.error or "backend did not complete the job")
