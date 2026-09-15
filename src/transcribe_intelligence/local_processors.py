@@ -74,8 +74,11 @@ class LocalAudioProcessor:
     def normalize(self, request: JobEnvelope) -> ResultEnvelope:
         """Convert audio to deterministic PCM WAV using ffmpeg when needed."""
         if not request.input_artifact_id:
-            raise ExchangeError("normalize request requires input_artifact_id")
-        manifest = self.resolver.resolve(request.input_artifact_id)
+            raise ExchangeError("normalize input artifact is required")
+        try:
+            manifest = self.resolver.resolve(request.input_artifact_id)
+        except (FileNotFoundError, ValueError, ArtifactResolutionError) as exc:
+            raise ExchangeError(f"normalize input artifact not found: {request.input_artifact_id}") from exc
         if manifest.stage != "ingest" or manifest.kind != "source_audio":
             raise ExchangeError(
                 f"normalize input artifact must be ingest source_audio, got {manifest.stage}/{manifest.kind}"
@@ -89,20 +92,8 @@ class LocalAudioProcessor:
             try:
                 subprocess.run(
                     [
-                        "ffmpeg",
-                        "-nostdin",
-                        "-v",
-                        "error",
-                        "-y",
-                        "-i",
-                        str(source),
-                        "-ac",
-                        "1",
-                        "-ar",
-                        "16000",
-                        "-sample_fmt",
-                        "s16",
-                        str(temporary),
+                        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source),
+                        "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(temporary),
                     ],
                     check=True,
                     stdout=subprocess.DEVNULL,
