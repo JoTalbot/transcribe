@@ -227,3 +227,44 @@ def test_capability_routing_selects_worker_for_supported_stage(tmp_path: Path):
     assert [item.job_id for item in dispatches] == [ingest_id]
     assert repository.get_job(ingest_id).worker == ORACLE_LOCAL.worker
     assert exchange.get_request(ingest_id).worker == ORACLE_LOCAL.worker
+
+
+def test_default_routing_sends_ingest_to_oracle_local(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-default-ingest", "/audio/default.wav"))
+    job_id = stable_job_id("rec-default-ingest", "ingest")
+    repository.put_job(ExecutionJob(job_id, "rec-default-ingest", "ingest"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready("rec-default-ingest")
+
+    assert [item.job_id for item in dispatches] == [job_id]
+    assert repository.get_job(job_id).worker == ORACLE_LOCAL.worker
+    assert exchange.get_request(job_id).worker == ORACLE_LOCAL.worker
+
+
+def test_default_routing_sends_asr_to_colab_gpu(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-default-asr", "/audio/default.wav"))
+    ingest_id = stable_job_id("rec-default-asr", "ingest")
+    asr_id = stable_job_id("rec-default-asr", "asr")
+    repository.put_job(ExecutionJob(ingest_id, "rec-default-asr", "ingest", "completed", artifact_id="rec-default-asr:ingest:json"))
+    repository.put_job(ExecutionJob(asr_id, "rec-default-asr", "asr"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready("rec-default-asr")
+
+    assert [item.job_id for item in dispatches] == [asr_id]
+    assert repository.get_job(asr_id).worker == COLAB_GPU.worker
+    assert exchange.get_request(asr_id).input_artifact_id == "rec-default-asr:ingest:json"
+
+
+def test_default_routing_does_not_dispatch_unsupported_stage(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-default-unsupported", "/audio/default.wav"))
+    job_id = stable_job_id("rec-default-unsupported", "text_analysis")
+    repository.put_job(ExecutionJob(job_id, "rec-default-unsupported", "text_analysis"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    assert ExchangeCoordinator(repository, exchange).dispatch_ready("rec-default-unsupported") == []
+    assert repository.get_job(job_id).status == "queued"
