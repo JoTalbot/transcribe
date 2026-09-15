@@ -229,7 +229,13 @@ def test_exchange_accepts_current_lease_and_quarantines_reclaimed_worker_result(
         request_path = exchange.requests / "r:ingest.json"
         request_path.unlink()
 
-        time.sleep(1.05)
+        # ExchangeCoordinator uses the normal repository lease duration. Expire
+        # it explicitly so this integration test is deterministic.
+        with repository.connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE execution_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE job_id = %s",
+                ("r:ingest",),
+            )
         reclaimed = _wait_for_reclaim(repository, "r:ingest", "worker-b")
         assert reclaimed.lease_id != stale_lease
 
