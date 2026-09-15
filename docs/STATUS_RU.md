@@ -53,16 +53,17 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 13. Исправлен cross-worker dry-run test: production `dry_run_processor` сохранён с его контрактом `dry-run:<job_id>`, а тест использует отдельный canonical processor для проверки artifact routing.
 14. Lease identity сохранён через Colab backend и file exchange; добавлены regression tests на worker/lease propagation.
 15. Усилен recovery контроль `processing` marker: malformed/inconsistent marker консервативно блокирует dispatch, валидный orphaned marker после lease recovery уходит в quarantine.
+16. Статус CI синхронизирован после успешной проверки commit `0fbea7b`.
 
 ## CI
 
-Последний проверенный `main` — `7cdcd0cbd3393585d64452e201da3cd972ab5f19`.
+Последний проверенный `main` — `0fbea7bfe4085b55a9d3263abb73d71ed56ffc1f`.
 
-- `Validate #411` — **success**.
-- `CI Smoke #312` — **success**.
+- `Validate #412` — **success**.
+- `CI Smoke #313` — **success**.
 - `Validate` успешно прошёл compile, notebook JSON/structure, conversation schema, lint, **PostgreSQL integration tests**, script entrypoints и repository validation.
 - `CI Smoke` успешно выполнил Oracle-local worker smoke.
-- Предыдущий `Validate #410` на commit с первым вариантом Colab lease fix падал на lint; ошибка исправлена отдельным commit `7cdcd0c`, после чего полный `Validate #411` стал зелёным.
+- Предыдущий `Validate #411` и `CI Smoke #312` также были зелёными.
 
 ## Канонический 9-stage pipeline
 
