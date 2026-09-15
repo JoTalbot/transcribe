@@ -40,22 +40,22 @@
 8. README синхронизирован с новым PostgreSQL-only queue bootstrap и убраны устаревшие аргументы `--jobs` из production-команды dispatch.
 9. Добавлен Oracle scheduler daemon поверх уже проверенного lease-aware пути. Важное разделение сохранено: Oracle оркестрирует и выдаёт jobs, Colab выполняет GPU inference.
 10. Усилен Oracle daemon: единичный временный сбой PostgreSQL/exchange больше не завершает постоянный worker-процесс; добавлен regression test на повтор цикла после исключения.
+11. Исправлен PostgreSQL exchange integration test: истечение lease теперь задаётся непосредственно через `NOW() - INTERVAL '1 second'`, поэтому тест не зависит от фактической длительности coordinator lease и выполняется детерминированно.
 
 ## CI
 
-- `CI Smoke #206` для коммита `488333d5` завершён успешно.
-- Полный `Validate #305` для `488333d5` на момент последней проверки всё ещё выполнял `pytest`; live-log незавершённого job GitHub API не предоставлял.
-- После усиления Oracle worker создан новый push-triggered `Validate`; его результат должен быть проверен отдельно. До успешного завершения нового запуска проект CI-green не объявляется.
+- `Validate #322` для коммита `6c7ca1ff` завершён успешно.
+- `CI Smoke #223` для коммита `6c7ca1ff` завершён успешно.
+- Полный Validate прошёл compile, notebook/schema validation, lint, весь pytest-набор, проверки script entrypoints и repository structure.
+- Последний CI-green commit: `6c7ca1ff9b304e78c3a99b2354bd38eb37a41700`.
 
 ## Следующий production gate
 
-1. Получить успешный полный CI после усиления Oracle worker.
-2. Если CI найдёт ошибку, исправить её в репозитории и повторить проверку.
-3. Проверить реальный запуск Oracle daemon на ARM Ubuntu с PostgreSQL и exchange directory без production-аудио.
-4. Проверить реальный Colab exchange worker на тестовом job и lease ownership.
-5. Проверить, что оставшиеся вызовы `JobStore` ограничены legacy/local тестовой инфраструктурой и не участвуют в production orchestration.
-6. Выполнить dry-run полного Oracle → exchange → Colab пути без пользовательского production-аудио.
-7. Затем выполнить ограниченный production smoke test.
+1. Проверить реальный запуск Oracle daemon на ARM Ubuntu с PostgreSQL и exchange directory без production-аудио.
+2. Проверить реальный Colab exchange worker на тестовом job и lease ownership.
+3. Проверить, что оставшиеся вызовы `JobStore` ограничены legacy/local тестовой инфраструктурой и не участвуют в production orchestration.
+4. Выполнить dry-run полного Oracle → exchange → Colab пути без пользовательского production-аудио.
+5. Затем выполнить ограниченный production smoke test.
 
 ## Ограничение
 
