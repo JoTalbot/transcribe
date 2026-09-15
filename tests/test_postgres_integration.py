@@ -29,16 +29,27 @@ def postgres_database():
             cursor.execute(path.read_text(encoding="utf-8"))
         cursor.execute("TRUNCATE TABLE evidence, artifacts, execution_jobs, recordings CASCADE")
     connection.close()
-    yield psycopg
-    connection = psycopg.connect(DATABASE_URL)
-    connection.autocommit = True
-    with connection.cursor() as cursor:
-        cursor.execute("TRUNCATE TABLE evidence, artifacts, execution_jobs, recordings CASCADE")
-    connection.close()
+    try:
+        yield psycopg
+    finally:
+        connection = psycopg.connect(DATABASE_URL)
+        connection.autocommit = True
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("TRUNCATE TABLE evidence, artifacts, execution_jobs, recordings CASCADE")
+        finally:
+            connection.close()
 
 
 def _repository(psycopg) -> SqlRepository:
-    return SqlRepository(psycopg.connect(DATABASE_URL))
+    connection = psycopg.connect(DATABASE_URL)
+    connection.autocommit = True
+    return SqlRepository(connection)
+
+
+def _close_repository(repo: SqlRepository) -> None:
+    repo.connection.rollback()
+    repo.connection.close()
 
 
 def _seed(repo: SqlRepository, job_id: str = "r:asr") -> None:
@@ -67,8 +78,10 @@ def _wait_for_recovery(repo: SqlRepository, max_attempts: int, expected: tuple[i
 
 def test_two_workers_cannot_claim_the_same_job(postgres_database) -> None:
     repo = _repository(postgres_database)
-    _seed(repo)
-    repo.connection.close()
+    try:
+        _seed(repo)
+    finally:
+        _close_repository(repo)
 
     barrier = threading.Barrier(2)
     results: list[tuple[str, str | None]] = []
@@ -83,7 +96,7 @@ def test_two_workers_cannot_claim_the_same_job(postgres_database) -> None:
         except BaseException as exc:
             errors.append(exc)
         finally:
-            local.connection.close()
+            _close_repository(local)
 
     threads = [threading.Thread(target=worker, args=(name,)) for name in ("worker-a", "worker-b")]
     for thread in threads:
@@ -100,15 +113,17 @@ def test_two_workers_cannot_claim_the_same_job(postgres_database) -> None:
         assert claimed.status == "running"
         assert claimed.attempt == 1
     finally:
-        claimed_repo.connection.close()
+        _close_repository(claimed_repo)
 
 
 def test_reclaimed_lease_rejects_stale_worker_completion(postgres_database) -> None:
     first = _repository(postgres_database)
-    _seed(first)
-    claimed_a = first.claim_job("r:asr", "worker-a", lease_seconds=1)
-    assert claimed_a is not None and claimed_a.lease_id
-    first.connection.close()
+    try:
+        _seed(first)
+        claimed_a = first.claim_job("r:asr", "worker-a", lease_seconds=1)
+        assert claimed_a is not None and claimed_a.lease_id
+    finally:
+        _close_repository(first)
 
     second = _repository(postgres_database)
     try:
@@ -122,15 +137,15 @@ def test_reclaimed_lease_rejects_stale_worker_completion(postgres_database) -> N
         assert done.status == "completed"
         assert done.artifact_id == "fresh-artifact"
     finally:
-        second.connection.close()
+        _close_repository(second)
 
 
 def test_heartbeat_extends_only_the_current_lease(postgres_database) -> None:
     repo = _repository(postgres_database)
-    _seed(repo)
-    claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
-    assert claimed is not None and claimed.lease_id
     try:
+        _seed(repo)
+        claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
+        assert claimed is not None and claimed.lease_id
         refreshed = repo.heartbeat("r:asr", "worker-a", claimed.lease_id, lease_seconds=30)
         assert refreshed.status == "running"
         assert refreshed.lease_id == claimed.lease_id
@@ -142,15 +157,17 @@ def test_heartbeat_extends_only_the_current_lease(postgres_database) -> None:
         with pytest.raises(RuntimeError, match="lease heartbeat rejected"):
             repo.heartbeat("r:asr", "worker-a", "wrong-lease", lease_seconds=30)
     finally:
-        repo.connection.close()
+        _close_repository(repo)
 
 
 def test_expired_lease_is_recovered_to_retry(postgres_database) -> None:
     repo = _repository(postgres_database)
-    _seed(repo)
-    claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
-    assert claimed is not None
-    repo.connection.close()
+    try:
+        _seed(repo)
+        claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
+        assert claimed is not None
+    finally:
+        _close_repository(repo)
 
     recovery = _repository(postgres_database)
     try:
@@ -161,15 +178,17 @@ def test_expired_lease_is_recovered_to_retry(postgres_database) -> None:
         assert recovered.worker is None
         assert recovered.lease_id is None
     finally:
-        recovery.connection.close()
+        _close_repository(recovery)
 
 
 def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
     repo = _repository(postgres_database)
-    _seed(repo)
-    claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
-    assert claimed is not None
-    repo.connection.close()
+    try:
+        _seed(repo)
+        claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=1)
+        assert claimed is not None
+    finally:
+        _close_repository(repo)
 
     recovery = _repository(postgres_database)
     try:
@@ -181,33 +200,35 @@ def test_max_attempts_recovery_marks_job_failed(postgres_database) -> None:
         assert failed.lease_id is None
         assert failed.error
     finally:
-        recovery.connection.close()
+        _close_repository(recovery)
 
 
 def test_exchange_accepts_current_lease_and_quarantines_reclaimed_worker_result(postgres_database, tmp_path: Path) -> None:
     repository = _repository(postgres_database)
-    _seed(repository)
-    exchange = FileExchange(tmp_path / "exchange")
-    coordinator = ExchangeCoordinator(repository, exchange)
+    try:
+        _seed(repository)
+        exchange = FileExchange(tmp_path / "exchange")
+        coordinator = ExchangeCoordinator(repository, exchange)
 
-    first = coordinator.dispatch_ready("r", worker="worker-a")
-    assert len(first) == 1
-    request = exchange.get_request("r:asr")
-    assert request.worker == "worker-a"
-    assert request.lease_id
-    stale_lease = request.lease_id
-    request_path = exchange.requests / "r:asr.json"
-    request_path.unlink()
+        first = coordinator.dispatch_ready("r", worker="worker-a")
+        assert len(first) == 1
+        request = exchange.get_request("r:asr")
+        assert request.worker == "worker-a"
+        assert request.lease_id
+        stale_lease = request.lease_id
+        request_path = exchange.requests / "r:asr.json"
+        request_path.unlink()
 
-    reclaimed = _wait_for_reclaim(repository, "r:asr", "worker-b")
-    assert reclaimed.lease_id != stale_lease
+        reclaimed = _wait_for_reclaim(repository, "r:asr", "worker-b")
+        assert reclaimed.lease_id != stale_lease
 
-    exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="stale", worker="worker-a", lease_id=stale_lease))
-    assert coordinator.apply_results() == 0
-    assert (exchange.results / "quarantine" / "r:asr.json").exists()
+        exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="stale", worker="worker-a", lease_id=stale_lease))
+        assert coordinator.apply_results() == 0
+        assert (exchange.results / "quarantine" / "r:asr.json").exists()
 
-    exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="fresh", worker="worker-b", lease_id=reclaimed.lease_id))
-    assert coordinator.apply_results() == 1
-    assert repository.get_job("r:asr").status == "completed"
-    assert repository.get_job("r:asr").artifact_id == "fresh"
-    repository.connection.close()
+        exchange.put_result(ResultEnvelope("r:asr", "completed", artifact_id="fresh", worker="worker-b", lease_id=reclaimed.lease_id))
+        assert coordinator.apply_results() == 1
+        assert repository.get_job("r:asr").status == "completed"
+        assert repository.get_job("r:asr").artifact_id == "fresh"
+    finally:
+        _close_repository(repository)
