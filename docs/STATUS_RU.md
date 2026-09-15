@@ -24,7 +24,8 @@
 - Production bootstrap очереди больше не пишет `state/jobs.json`: `scripts/run_pipeline.py` создаёт recordings и stable stage jobs непосредственно в PostgreSQL.
 - Добавлен отдельный `scripts/oracle_worker.py` как production entrypoint устойчивого Oracle-оркестратора: каждый цикл использует свежий PostgreSQL connection, применяет результаты, reclaim просроченных lease и dispatch через существующий `Scheduler`/`ExchangeCoordinator`.
 - Oracle worker не использует legacy `JobStore`, поддерживает `--once`, периодический режим и корректное завершение по `SIGINT`/`SIGTERM`.
-- Добавлены тесты управления циклом Oracle worker и проверки положительного интервала.
+- Oracle worker теперь переживает временные ошибки dispatch/БД: ошибка одного цикла логируется, после чего daemon продолжает работу с обычным интервалом.
+- Добавлены тесты управления циклом Oracle worker, проверки положительного интервала и восстановления после временной ошибки цикла.
 - README синхронизирован с новым Oracle daemon entrypoint.
 
 ## Последние исправления
@@ -38,14 +39,17 @@
 7. Исправлен production bootstrap: `scripts/run_pipeline.py` переведён на PostgreSQL canonical state, добавлена проверка конфликтующего `recording_id -> path`, а создание stage jobs стало идемпотентным через `SqlRepository.put_job`.
 8. README синхронизирован с новым PostgreSQL-only queue bootstrap и убраны устаревшие аргументы `--jobs` из production-команды dispatch.
 9. Добавлен Oracle scheduler daemon поверх уже проверенного lease-aware пути. Важное разделение сохранено: Oracle оркестрирует и выдаёт jobs, Colab выполняет GPU inference.
+10. Усилен Oracle daemon: единичный временный сбой PostgreSQL/exchange больше не завершает постоянный worker-процесс; добавлен regression test на повтор цикла после исключения.
 
 ## CI
 
-После изменений `scripts/oracle_worker.py`, тестов и README GitHub Actions должен завершить новый push-triggered запуск `Validate`. До получения фактического успешного результата нельзя объявлять проект CI-green.
+- `CI Smoke #206` для коммита `488333d5` завершён успешно.
+- Полный `Validate #305` для `488333d5` на момент последней проверки всё ещё выполнял `pytest`; live-log незавершённого job GitHub API не предоставлял.
+- После усиления Oracle worker создан новый push-triggered `Validate`; его результат должен быть проверен отдельно. До успешного завершения нового запуска проект CI-green не объявляется.
 
 ## Следующий production gate
 
-1. Получить успешный полный CI после добавления Oracle worker.
+1. Получить успешный полный CI после усиления Oracle worker.
 2. Если CI найдёт ошибку, исправить её в репозитории и повторить проверку.
 3. Проверить реальный запуск Oracle daemon на ARM Ubuntu с PostgreSQL и exchange directory без production-аудио.
 4. Проверить реальный Colab exchange worker на тестовом job и lease ownership.
