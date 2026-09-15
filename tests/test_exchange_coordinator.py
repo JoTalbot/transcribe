@@ -24,6 +24,29 @@ def test_dispatches_first_stage_and_marks_running(tmp_path: Path):
     assert exchange.get_request(job.job_id).input_path == "/audio/one.wav"
 
 
+def test_publish_failure_releases_claim_for_immediate_retry(tmp_path: Path):
+    class FailingExchange(FileExchange):
+        def put_request(self, request):
+            raise OSError("exchange unavailable")
+
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-publish", "/audio/publish.wav"))
+    job = ExecutionJob(stable_job_id("rec-publish", "ingest"), "rec-publish", "ingest")
+    repository.put_job(job)
+
+    coordinator = ExchangeCoordinator(repository, FailingExchange(tmp_path / "exchange"))
+    assert coordinator.dispatch_ready("rec-publish", worker="colab") == []
+
+    stored = repository.get_job(job.job_id)
+    assert stored is not None
+    assert stored.status == "retry"
+    assert stored.attempt == 1
+    assert stored.worker is None
+    assert stored.lease_id is None
+    assert stored.lease_until is None
+    assert stored.error == "exchange publish failed: exchange unavailable"
+
+
 def test_completed_dependency_dispatches_next_stage_with_artifact(tmp_path: Path):
     repository = InMemoryRepository()
     repository.put_recording(Recording("rec-2", "/audio/two.wav"))
