@@ -4,7 +4,7 @@
 
 ## Текущее состояние
 
-Проект находится на этапе доводки безопасного распределённого исполнения перед подключением реальных Oracle/Colab worker-процессов.
+Ядро распределённого execution pipeline доведено до устойчивого PostgreSQL/lease/exchange уровня, но **полный 9-стадийный production E2E ещё не готов**. Основной оставшийся блокер теперь точно локализован: queue contract содержит 9 стадий, тогда как реальный Colab exchange worker умеет выполнять только ASR и diarization (embeddings обрабатываются отдельной веткой worker). Поэтому нельзя честно объявлять Oracle → Colab → полный pipeline production-ready. Человечество снова придумало интерфейс шире реализации.
 
 ### Проверено и усилено
 
@@ -15,48 +15,63 @@
 - Просроченный lease может быть переотдан другому worker.
 - Старый worker не может завершить уже переотданное задание.
 - Просроченный lease переводится в `retry`, а при достижении лимита попыток в `failed`.
-- Integration tests покрывают heartbeat и предельное число попыток.
-- PostgreSQL integration test покрывает полный обмен: dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
-- Scheduler для DB-backed repository не может случайно перейти на небезопасный legacy recovery path из-за переданного тестового `now`.
+- PostgreSQL integration test покрывает dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
+- Scheduler для DB-backed repository использует транзакционный `recover_stale()`.
 - Colab worker не оставляет malformed claim в `processing`: такой request отправляется в quarantine.
-- Worker tests соответствуют обязательному `worker + lease_id` протоколу.
-- Exchange result application работает через канонический PostgreSQL repository и lease-aware `ExchangeCoordinator`, а не через новый пустой `InMemoryRepository`.
 - Production bootstrap очереди больше не пишет `state/jobs.json`: `scripts/run_pipeline.py` создаёт recordings и stable stage jobs непосредственно в PostgreSQL.
-- Добавлен отдельный `scripts/oracle_worker.py` как production entrypoint устойчивого Oracle-оркестратора: каждый цикл использует свежий PostgreSQL connection, применяет результаты, reclaim просроченных lease и dispatch через существующий `Scheduler`/`ExchangeCoordinator`.
-- Oracle worker не использует legacy `JobStore`, поддерживает `--once`, периодический режим и корректное завершение по `SIGINT`/`SIGTERM`.
-- Oracle worker теперь переживает временные ошибки dispatch/БД: ошибка одного цикла логируется, после чего daemon продолжает работу с обычным интервалом.
-- Добавлены тесты управления циклом Oracle worker, проверки положительного интервала и восстановления после временной ошибки цикла.
+- `scripts/submit_exchange_jobs.py` работает через PostgreSQL + `Scheduler`/`ExchangeCoordinator` и не создаёт production exchange jobs через legacy `JobStore`.
+- `scripts/apply_exchange_results.py` применяет результаты через PostgreSQL lease ownership.
+- `scripts/oracle_worker.py` использует свежий PostgreSQL connection на цикл, применяет результаты, reclaim просроченных lease и dispatch через `Scheduler`/`ExchangeCoordinator`.
+- Oracle daemon переживает временный сбой одного цикла и продолжает работу.
+- Colab exchange worker очищает `processing` marker даже при неудаче публикации результата.
+- Добавлен dry-run контракт Oracle → exchange без GPU и production audio.
 - README синхронизирован с новым Oracle daemon entrypoint.
 
 ## Последние исправления
 
-1. Убрана зависимость integration tests от фиксированных задержек истечения lease. Ожидание reclaim/recovery выполняется через bounded polling с монотонным таймером. Временные PostgreSQL-соединения закрываются после проверок.
-2. Добавлен PostgreSQL-backed E2E-тест coordinator/exchange: результат старого worker после reclaim не меняет состояние задания и перемещается в quarantine, а результат нового worker с актуальным `lease_id` успешно завершает задание.
+1. Убрана зависимость integration tests от фиксированных задержек истечения lease: reclaim проверяется bounded polling и тестовым временем/SQL.
+2. Добавлен PostgreSQL-backed E2E-тест coordinator/exchange для stale-result quarantine и нового lease.
 3. Исправлен scheduler recovery bypass: lease-aware repository всегда использует транзакционный `recover_stale()`.
 4. Исправлен Colab exchange worker: malformed claim после перемещения в `processing` гарантированно уходит в quarantine.
-5. Исправлен production exchange submission: `scripts/submit_exchange_jobs.py` больше не создаёт exchange jobs напрямую из локального `JobStore`. Теперь он требует PostgreSQL, сверяет manifest paths с каноническими записями БД и выполняет dispatch через `Scheduler`/`ExchangeCoordinator` с lease ownership.
-6. Исправлен production result application: `scripts/apply_exchange_results.py` больше не применяет результаты к эфемерному `InMemoryRepository`; теперь он требует `TRANSCRIBE_DATABASE_URL` или `--database-url` и применяет результаты через PostgreSQL lease ownership.
-7. Исправлен production bootstrap: `scripts/run_pipeline.py` переведён на PostgreSQL canonical state, добавлена проверка конфликтующего `recording_id -> path`, а создание stage jobs стало идемпотентным через `SqlRepository.put_job`.
-8. README синхронизирован с новым PostgreSQL-only queue bootstrap и убраны устаревшие аргументы `--jobs` из production-команды dispatch.
-9. Добавлен Oracle scheduler daemon поверх уже проверенного lease-aware пути. Важное разделение сохранено: Oracle оркестрирует и выдаёт jobs, Colab выполняет GPU inference.
-10. Усилен Oracle daemon: единичный временный сбой PostgreSQL/exchange больше не завершает постоянный worker-процесс; добавлен regression test на повтор цикла после исключения.
-11. Исправлен PostgreSQL exchange integration test: истечение lease теперь задаётся непосредственно через `NOW() - INTERVAL '1 second'`, поэтому тест не зависит от фактической длительности coordinator lease и выполняется детерминированно.
+5. Исправлен production exchange submission через canonical PostgreSQL state и lease ownership.
+6. Исправлен production result application через PostgreSQL lease ownership вместо эфемерного `InMemoryRepository`.
+7. Исправлен PostgreSQL bootstrap и идемпотентное создание stage jobs.
+8. Oracle scheduler daemon вынесен в отдельный production entrypoint.
+9. Oracle daemon усилен повтором после временной ошибки цикла.
+10. Добавлен dry-run документационный путь полного exchange-контракта.
+11. Добавлен regression test на очистку `processing` после ошибки публикации результата.
 
 ## CI
 
-- `Validate #322` для коммита `6c7ca1ff` завершён успешно.
-- `CI Smoke #223` для коммита `6c7ca1ff` завершён успешно.
-- Полный Validate прошёл compile, notebook/schema validation, lint, весь pytest-набор, проверки script entrypoints и repository structure.
-- Последний CI-green commit: `6c7ca1ff9b304e78c3a99b2354bd38eb37a41700`.
+Последний `main` на коммите `a25b33a6ba7f5db293560ff8bc42ecec28e01a46` зелёный:
 
-## Следующий production gate
+- `Validate #337` — **success**.
+- `CI Smoke #238` — **success**.
+- Оба workflow завершились 2026-09-15 после изменения `test: cover exchange publish failure cleanup`.
+- Автоматический retry не потребовался.
 
-1. Проверить реальный запуск Oracle daemon на ARM Ubuntu с PostgreSQL и exchange directory без production-аудио.
-2. Проверить реальный Colab exchange worker на тестовом job и lease ownership.
-3. Проверить, что оставшиеся вызовы `JobStore` ограничены legacy/local тестовой инфраструктурой и не участвуют в production orchestration.
-4. Выполнить dry-run полного Oracle → exchange → Colab пути без пользовательского production-аудио.
-5. Затем выполнить ограниченный production smoke test.
+## Критический архитектурный блокер
+
+Контракт pipeline объявляет 9 стадий:
+
+`ingest → normalize → asr → diarization → embeddings → text_analysis → topics → linking → graph`.
+
+При этом текущий `scripts/colab_inference.py` реально реализует GPU-процессоры только для `asr` и `diarization`; `embeddings` обрабатывается отдельной веткой `colab_exchange_worker.py`. Стадии `ingest`, `normalize`, `text_analysis`, `topics`, `linking`, `graph` пока не имеют полного production processor/worker пути.
+
+Дополнительно `input_artifact_id` сейчас служит scheduler dependency, но downstream worker не разрешает этот artifact ID в физический входной файл: resolver в GPU inference работает с `input_path`/исходной записью. Поэтому даже после добавления недостающих processors необходимо завершить реальный artifact transport, иначе pipeline будет формально последовательным, но фактически повторно читать исходное аудио.
+
+## Следующая инженерная очередь
+
+1. Ввести явную capability/routing модель worker'ов: Oracle-local stages и Colab GPU stages не должны конкурировать за одну и ту же очередь вслепую.
+2. Реализовать processors для `ingest`/`normalize` и определить canonical artifact storage/manifest для их результатов.
+3. Переделать artifact resolution так, чтобы `input_artifact_id` однозначно разрешался в физический artifact, а не заменялся исходным `input_path`.
+4. Реализовать или явно подключить workers для `text_analysis`, `topics`, `linking`, `graph`.
+5. Добавить capability/routing integration tests, которые доказывают, что неподдерживаемая стадия не отправляется неподходящему worker.
+6. После этого повторить dry-run полного 9-stage пути.
+7. Затем выполнить реальный Oracle ARM smoke без production audio.
+8. Затем реальный Colab GPU test с тестовым аудио и lease ownership.
+9. Только после успешного полного E2E перейти к ограниченному production smoke.
 
 ## Ограничение
 
-Бесплатный Google Colab не предоставляет гарантированный headless/public API. Поэтому Colab остаётся best-effort GPU worker через предусмотренный exchange/runner механизм, а Oracle должен оставаться устойчивым оркестратором и источником истины состояния.
+Бесплатный Google Colab не предоставляет гарантированный headless/public API. Поэтому Colab остаётся best-effort GPU worker через exchange/runner механизм, а Oracle должен оставаться устойчивым оркестратором и источником истины состояния.
