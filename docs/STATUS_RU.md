@@ -4,9 +4,9 @@
 
 ## Текущее состояние
 
-Ядро распределённого execution pipeline доведено до устойчивого PostgreSQL/lease/exchange уровня. **Полный 9-стадийный dry-run теперь проходит в CI**, включая реальное прохождение Oracle и Colab exchange worker entrypoints, capability routing и канонические artifact dependencies.
+Ядро распределённого execution pipeline доведено до устойчивого PostgreSQL/lease/exchange уровня. **Полный 9-стадийный dry-run проходит в CI**, включая Oracle и Colab exchange worker entrypoints, capability routing и канонические artifact dependencies.
 
-Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Google Colab GPU **ещё не выполнен**, поэтому production-ready для полного пути пока не объявляется. Человечество хотя бы научилось сначала проверять dry-run, прежде чем доверять ему аудио.
+Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Google Colab GPU **ещё не выполнен**, поэтому production-ready для полного пути пока не объявляется. Сначала тесты, потом распределённый хаос.
 
 ### Проверено и усилено
 
@@ -33,6 +33,7 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Colab exchange worker содержит отдельную ECAPA embedding ветку и публикует canonical `embeddings` artifact manifest.
 - Cross-worker regression test проходит через реальные `process_one()` entrypoints обоих worker'ов и проверяет весь 9-stage маршрут и exact dependency artifact IDs.
 - Успешно применённые exchange results удаляются после commit результата; stale/foreign/malformed results остаются в quarantine.
+- Colab transport сохраняет `worker + lease_id` от execution job до file-exchange request, чтобы результат нельзя было принять за другой lease.
 - README синхронизирован с Oracle daemon entrypoint.
 
 ## Последние исправления
@@ -50,15 +51,18 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 11. Исправлена обработка результата exchange: успешно применённый result больше не повторно попадает в stale/quarantine на следующем цикле.
 12. Добавлены capability-aware routing и cross-worker 9-stage regression проверки.
 13. Исправлен cross-worker dry-run test: production `dry_run_processor` сохранён с его контрактом `dry-run:<job_id>`, а тест использует отдельный canonical processor для проверки artifact routing.
+14. Lease identity сохранён через Colab backend и file exchange; добавлены regression tests на worker/lease propagation.
+15. Усилен recovery контроль `processing` marker: malformed/inconsistent marker консервативно блокирует dispatch, валидный orphaned marker после lease recovery уходит в quarantine.
 
 ## CI
 
-Последний проверенный `main` после `f6d89f4ddfe2ad4e7f2e2fe509d93aa8bd6173b8` зелёный:
+Последний проверенный `main` — `7cdcd0cbd3393585d64452e201da3cd972ab5f19`.
 
-- `Validate #400` — **success**.
-- `CI Smoke #301` — **success**.
-- `Validate` прошёл compile, notebook JSON/structure, schema, lint, tests, entrypoints и repository validation.
-- `CI Smoke` дополнительно успешно выполнил Oracle-local worker smoke.
+- `Validate #411` — **success**.
+- `CI Smoke #312` — **success**.
+- `Validate` успешно прошёл compile, notebook JSON/structure, conversation schema, lint, **PostgreSQL integration tests**, script entrypoints и repository validation.
+- `CI Smoke` успешно выполнил Oracle-local worker smoke.
+- Предыдущий `Validate #410` на commit с первым вариантом Colab lease fix падал на lint; ошибка исправлена отдельным commit `7cdcd0c`, после чего полный `Validate #411` стал зелёным.
 
 ## Канонический 9-stage pipeline
 
