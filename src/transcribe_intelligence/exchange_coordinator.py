@@ -171,6 +171,10 @@ class ExchangeCoordinator:
         target.with_suffix(target.suffix + ".error").write_text(reason + "\n", encoding="utf-8")
         return target
 
+    def _consume_result(self, path: Path) -> None:
+        """Remove a successfully persisted result so it cannot be replayed as stale."""
+        path.unlink()
+
     def _lease_still_matches(self, job: ExecutionJob, worker: str | None, lease_id: str | None) -> bool:
         """Re-check ownership after a lease-aware mutation rejects a result."""
         current = self.repository.get_job(job.job_id)
@@ -211,6 +215,7 @@ class ExchangeCoordinator:
                         raise
                     self.quarantine_result(path, f"stale or foreign result for job {result.job_id}: {exc}")
                     continue
+                self._consume_result(path)
                 changed += 1
             elif result.status == "failed" and callable(fail):
                 if result.worker != job.worker or result.lease_id != job.lease_id:
@@ -223,12 +228,17 @@ class ExchangeCoordinator:
                         raise
                     self.quarantine_result(path, f"stale or foreign result for job {result.job_id}: {exc}")
                     continue
+                self._consume_result(path)
                 changed += 1
             else:
                 try:
-                    changed += apply_result(self.repository, result)
+                    applied = apply_result(self.repository, result)
                 except (ExchangeError, KeyError, ValueError) as exc:
                     self.quarantine_result(path, str(exc))
+                    continue
+                if applied:
+                    self._consume_result(path)
+                changed += applied
         return changed
 
     def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
