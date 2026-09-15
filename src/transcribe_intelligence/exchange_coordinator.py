@@ -208,3 +208,20 @@ class ExchangeCoordinator:
                 except (ExchangeError, KeyError, ValueError) as exc:
                     self.quarantine_result(path, str(exc))
         return changed
+
+
+def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
+    """Return deterministic queued jobs whose prerequisites are completed."""
+    completed = {
+        (job.recording_id, job.stage): job.artifact_id
+        for job in jobs
+        if job.status == "completed" and job.artifact_id
+    }
+    ready: list[ExecutionJob] = []
+    for job in jobs:
+        if job.status != "queued":
+            continue
+        required = dependencies(job.stage)
+        if all((job.recording_id, stage) in completed for stage in required):
+            ready.append(job)
+    return sorted(ready, key=lambda item: (item.recording_id, item.stage, item.job_id))
