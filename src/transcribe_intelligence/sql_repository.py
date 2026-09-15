@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 import uuid
 
-from .execution_lease import CLAIM_JOB_SQL, CLAIM_SQL, COMPLETE_SQL, FAIL_SQL, HEARTBEAT_SQL, RECOVER_STALE_SQL
+from .execution_lease import CLAIM_JOB_SQL, CLAIM_SQL, COMPLETE_SQL, FAIL_SQL, HEARTBEAT_SQL, RECOVER_STALE_SQL, RELEASE_SQL
 from .job_store import ExecutionJob
 from .repository import Recording, Repository
 
@@ -92,6 +92,16 @@ class SqlRepository(Repository):
             raise ValueError("error must not be empty")
         if self._lease_query(FAIL_SQL, (error, job_id, worker, lease_id)) is None:
             raise RuntimeError("lease failure update rejected")
+        job = self.get_job(job_id)
+        if job is None:
+            raise KeyError(f"unknown job: {job_id}")
+        return job
+
+    def release(self, job_id: str, worker: str, lease_id: str, error: str) -> ExecutionJob:
+        if not error.strip():
+            raise ValueError("error must not be empty")
+        if self._lease_query(RELEASE_SQL, (error, job_id, worker, lease_id)) is None:
+            raise RuntimeError("lease release rejected")
         job = self.get_job(job_id)
         if job is None:
             raise KeyError(f"unknown job: {job_id}")
