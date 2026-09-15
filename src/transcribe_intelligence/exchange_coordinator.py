@@ -129,13 +129,15 @@ class ExchangeCoordinator:
             running = self._claim(job, target_worker)
             if running is None:
                 continue
-            input_artifact_id = completed[required[0]] if required else None
+            input_artifact_ids = tuple(completed[stage_name] for stage_name in required)
+            input_artifact_id = input_artifact_ids[0] if input_artifact_ids else None
             request = JobEnvelope(
                 job_id=running.job_id,
                 recording_id=running.recording_id,
                 stage=running.stage,
                 input_artifact_id=input_artifact_id,
-                input_path=recording.input_path if input_artifact_id is None else None,
+                input_artifact_ids=input_artifact_ids,
+                input_path=recording.input_path if not input_artifact_ids else None,
                 worker=running.worker,
                 lease_id=running.lease_id,
             )
