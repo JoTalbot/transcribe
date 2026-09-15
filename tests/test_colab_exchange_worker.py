@@ -47,3 +47,21 @@ def test_process_one_quarantines_malformed_claim_instead_of_leaking_processing_m
 
     assert not (exchange.root / "processing" / "j3.json").exists()
     assert (exchange.results / "quarantine" / "j3.json").exists()
+
+
+def test_process_one_releases_processing_marker_when_result_publish_fails(tmp_path: Path):
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_request(JobEnvelope("j4", "r4", "asr", worker="worker-a", lease_id="lease-4"))
+
+    original_put_result = exchange.put_result
+
+    def broken_publish(_result):
+        raise OSError("exchange storage unavailable")
+
+    exchange.put_result = broken_publish  # type: ignore[method-assign]
+    with pytest.raises(OSError, match="exchange storage unavailable"):
+        process_one(exchange, "j4", dry_run_processor)
+
+    exchange.put_result = original_put_result  # type: ignore[method-assign]
+    assert not (exchange.requests / "j4.json").exists()
+    assert not (exchange.root / "processing" / "j4.json").exists()
