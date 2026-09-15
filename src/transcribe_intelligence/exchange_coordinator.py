@@ -145,7 +145,7 @@ class ExchangeCoordinator:
                     changed += 1
                 else:
                     changed += int(apply_result(self.repository, result))
-            except (ExchangeError, KeyError, ValueError, RuntimeError) as exc:
+            except (ExchangeError, KeyError, ValueError) as exc:
                 self.quarantine_result(path, str(exc))
         return changed
 
@@ -158,6 +158,7 @@ class ExchangeCoordinator:
 def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
     completed = {job.stage for job in jobs if job.status == "completed" and job.artifact_id}
     return [
-        job for job in sorted(jobs, key=lambda item: (item.stage, item.job_id))
+        job
+        for job in sorted(jobs, key=lambda item: (item.stage, item.job_id))
         if job.status in {"queued", "retry"} and all(stage in completed for stage in dependencies(job.stage))
     ]
