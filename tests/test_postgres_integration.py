@@ -58,7 +58,8 @@ def _seed(repo: SqlRepository, job_id: str = "r:asr") -> None:
 
 
 def _seed_exchange_pipeline(repo: SqlRepository) -> None:
-    _seed(repo, "r:ingest")
+    repo.put_recording(Recording("r", "/audio/r.wav"))
+    repo.put_job(ExecutionJob("r:ingest", "r", "ingest"))
     repo.put_job(ExecutionJob("r:normalize", "r", "normalize"))
     repo.put_job(ExecutionJob("r:asr", "r", "asr"))
 
@@ -228,6 +229,7 @@ def test_exchange_accepts_current_lease_and_quarantines_reclaimed_worker_result(
         request_path = exchange.requests / "r:ingest.json"
         request_path.unlink()
 
+        time.sleep(1.05)
         reclaimed = _wait_for_reclaim(repository, "r:ingest", "worker-b")
         assert reclaimed.lease_id != stale_lease
 
