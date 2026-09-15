@@ -40,7 +40,14 @@ def test_oracle_local_worker_runs_real_cpu_chain(tmp_path: Path) -> None:
     asr_path = root / "artifacts" / "recording" / "asr.json"
     asr_path.parent.mkdir(parents=True, exist_ok=True)
     asr_path.write_text('{"segments": [{"text": "hello world"}]}', encoding="utf-8")
-    asr_manifest = build_manifest("recording:asr:json", "recording", "asr", "transcript", asr_path, "ci")
+    asr_manifest = build_manifest(
+        asr_path,
+        artifact_id="recording:asr:json",
+        recording_id="recording",
+        stage="asr",
+        kind="transcript",
+        producer="ci",
+    )
     write_manifest(asr_manifest, asr_path.with_name(asr_path.name + ".manifest.json"))
 
     text = JobEnvelope("recording:text_analysis", "recording", "text_analysis", input_artifact_id=asr_manifest.artifact_id, worker="oracle-local", lease_id="l3")
@@ -50,7 +57,14 @@ def test_oracle_local_worker_runs_real_cpu_chain(tmp_path: Path) -> None:
 
     embeddings_path = root / "artifacts" / "recording" / "embeddings.json"
     embeddings_path.write_text('{"embeddings": []}', encoding="utf-8")
-    embeddings_manifest = build_manifest("recording:embeddings:json", "recording", "embeddings", "embeddings", embeddings_path, "ci")
+    embeddings_manifest = build_manifest(
+        embeddings_path,
+        artifact_id="recording:embeddings:json",
+        recording_id="recording",
+        stage="embeddings",
+        kind="embeddings",
+        producer="ci",
+    )
     write_manifest(embeddings_manifest, embeddings_path.with_name(embeddings_path.name + ".manifest.json"))
 
     linking = JobEnvelope(
