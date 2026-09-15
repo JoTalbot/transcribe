@@ -76,6 +76,17 @@ def process_one(exchange: FileExchange, job_id: str, processor) -> ResultEnvelop
         path.unlink(missing_ok=True)
 
 
+def dry_run_processor(request: JobEnvelope) -> ResultEnvelope:
+    """Return a deterministic result without loading GPU models or touching audio."""
+    return ResultEnvelope(
+        request.job_id,
+        "completed",
+        artifact_id=f"dry-run:{request.job_id}",
+        worker=request.worker,
+        lease_id=request.lease_id,
+    )
+
+
 def load_models(config: InferenceConfig, embedding_config: EmbeddingConfig):
     import torch
     from faster_whisper import WhisperModel
