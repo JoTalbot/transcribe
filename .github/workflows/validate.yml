@@ -52,6 +52,13 @@ jobs:
         run: ruff check scripts src tests
       - name: Run tests
         run: pytest -q
+      - name: Validate script entrypoints
+        run: |
+          python scripts/oracle_worker.py --help >/dev/null
+          python scripts/colab_worker.py --help >/dev/null
+          python scripts/colab_runner.py --help >/dev/null
+          python scripts/submit_exchange_jobs.py --help >/dev/null
+          python scripts/apply_exchange_results.py --help >/dev/null
       - name: Check repository structure
         run: |
           test -f README.md
