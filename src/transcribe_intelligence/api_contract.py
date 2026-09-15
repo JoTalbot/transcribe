@@ -31,6 +31,9 @@ class JobPayload:
     worker: str | None
     error: str | None
     updated_at: str | None
+    lease_id: str | None
+    lease_until: str | None
+    heartbeat_at: str | None
 
     @classmethod
     def from_job(cls, job: ExecutionJob) -> "JobPayload":
