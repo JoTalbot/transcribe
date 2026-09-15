@@ -171,6 +171,16 @@ class ExchangeCoordinator:
         target.with_suffix(target.suffix + ".error").write_text(reason + "\n", encoding="utf-8")
         return target
 
+    def _lease_still_matches(self, job: ExecutionJob, worker: str | None, lease_id: str | None) -> bool:
+        """Re-check ownership after a lease-aware mutation rejects a result."""
+        current = self.repository.get_job(job.job_id)
+        return (
+            current is not None
+            and current.status == "running"
+            and current.worker == worker
+            and current.lease_id == lease_id
+        )
+
     def apply_results(self) -> int:
         changed = 0
         for path in sorted(self.exchange.results.glob("*.json")):
@@ -194,13 +204,25 @@ class ExchangeCoordinator:
                 if not result.artifact_id:
                     self.quarantine_result(path, "completed result requires artifact_id")
                     continue
-                complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                try:
+                    complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                except RuntimeError as exc:
+                    if self._lease_still_matches(job, result.worker, result.lease_id):
+                        raise
+                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}: {exc}")
+                    continue
                 changed += 1
             elif result.status == "failed" and callable(fail):
                 if result.worker != job.worker or result.lease_id != job.lease_id:
                     self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
                     continue
-                fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
+                try:
+                    fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
+                except RuntimeError as exc:
+                    if self._lease_still_matches(job, result.worker, result.lease_id):
+                        raise
+                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}: {exc}")
+                    continue
                 changed += 1
             else:
                 try:
