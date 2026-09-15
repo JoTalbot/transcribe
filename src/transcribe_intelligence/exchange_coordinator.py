@@ -10,7 +10,7 @@ from .job_store import ExecutionJob
 from .pipeline_contract import Stage
 from .repository import Repository
 from .result_service import apply_result
-from .worker_capabilities import WorkerCapabilities
+from .worker_capabilities import DEFAULT_STAGE_WORKERS, DEFAULT_WORKER_CAPABILITIES, WorkerCapabilities
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,14 +79,32 @@ class ExchangeCoordinator:
         )
 
     def _target_worker(self, stage: Stage, fallback: str) -> str | None:
-        """Resolve an explicit route and reject unknown/incompatible workers."""
-        if self.worker_capabilities is None:
-            return self.stage_workers.get(stage, fallback)
-        worker = self.stage_workers.get(stage, fallback)
-        capabilities = self.worker_capabilities.get(worker)
-        if capabilities is None or not capabilities.supports(stage):
+        """Resolve an explicit route or a deterministic capable default."""
+        explicit = self.stage_workers.get(stage)
+        if explicit is not None:
+            if self.worker_capabilities is None:
+                return explicit
+            capabilities = self.worker_capabilities.get(explicit)
+            return explicit if capabilities is not None and capabilities.supports(stage) else None
+
+        if fallback == "colab":
+            if self.worker_capabilities is None:
+                return DEFAULT_STAGE_WORKERS.get(stage)
+            candidates = self.worker_capabilities
+            default_worker = DEFAULT_STAGE_WORKERS.get(stage)
+            if default_worker is not None:
+                capabilities = candidates.get(default_worker)
+                if capabilities is not None and capabilities.supports(stage):
+                    return default_worker
+            for worker_name in sorted(candidates):
+                if candidates[worker_name].supports(stage):
+                    return worker_name
             return None
-        return worker
+
+        if self.worker_capabilities is None:
+            return fallback
+        capabilities = self.worker_capabilities.get(fallback)
+        return fallback if capabilities is not None and capabilities.supports(stage) else None
 
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
         recording = self.repository.get_recording(recording_id)
@@ -184,21 +202,7 @@ class ExchangeCoordinator:
                 changed += 1
             else:
                 try:
-                    changed += int(apply_result(self.repository, result))
+                    changed += apply_result(self.repository, result)
                 except (ExchangeError, KeyError, ValueError) as exc:
                     self.quarantine_result(path, str(exc))
         return changed
-
-    def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
-        changed = self.apply_results()
-        dispatches = self.dispatch_ready(recording_id, worker=worker)
-        return dispatches, changed
-
-
-def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
-    completed = {job.stage for job in jobs if job.status == "completed" and job.artifact_id}
-    return [
-        job
-        for job in sorted(jobs, key=lambda item: (item.stage, item.job_id))
-        if job.status in {"queued", "retry"} and all(stage in completed for stage in dependencies(job.stage))
-    ]
