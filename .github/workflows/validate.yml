@@ -51,7 +51,8 @@ jobs:
       - name: Lint Python
         run: ruff check scripts src tests
       - name: Run tests
-        run: pytest -q
+        timeout-minutes: 10
+        run: timeout --signal=TERM --kill-after=30s 8m python -m pytest -vv -ra
       - name: Validate script entrypoints
         run: |
           python scripts/oracle_worker.py --help >/dev/null
