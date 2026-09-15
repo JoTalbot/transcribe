@@ -209,6 +209,12 @@ class ExchangeCoordinator:
                     self.quarantine_result(path, str(exc))
         return changed
 
+    def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
+        """Apply available results, then dispatch the newly ready jobs."""
+        changed = self.apply_results()
+        dispatches = self.dispatch_ready(recording_id, worker=worker)
+        return dispatches, changed
+
 
 def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
     """Return deterministic queued jobs whose prerequisites are completed."""
