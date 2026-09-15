@@ -5,37 +5,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from .pipeline_contract import PipelineStage
+from .pipeline_contract import Stage
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class WorkerCapabilities:
     """Immutable declaration of the pipeline stages a worker can execute."""
 
     worker: str
-    stages: frozenset[PipelineStage]
+    stages: frozenset[Stage]
 
-    def supports(self, stage: PipelineStage | str) -> bool:
-        value = stage if isinstance(stage, PipelineStage) else PipelineStage(stage)
+    def supports(self, stage: Stage | str) -> bool:
+        value = stage if isinstance(stage, Stage) else Stage(stage)
         return value in self.stages
 
 
 COLAB_GPU = WorkerCapabilities(
     worker="colab-gpu",
-    stages=frozenset(
-        {
-            PipelineStage.ASR,
-            PipelineStage.DIARIZATION,
-            PipelineStage.EMBEDDINGS,
-        }
-    ),
+    stages=frozenset({Stage.ASR, Stage.DIARIZATION, Stage.EMBEDDINGS}),
 )
 
 ORACLE_LOCAL = WorkerCapabilities(
     worker="oracle-local",
-    stages=frozenset({PipelineStage.INGEST, PipelineStage.NORMALIZE}),
+    stages=frozenset({Stage.INGEST, Stage.NORMALIZE}),
 )
-
 
 DEFAULT_WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
     COLAB_GPU.worker: COLAB_GPU,
@@ -43,13 +36,12 @@ DEFAULT_WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
 }
 
 
-def make_capabilities(worker: str, stages: Iterable[PipelineStage | str]) -> WorkerCapabilities:
+def make_capabilities(worker: str, stages: Iterable[Stage | str]) -> WorkerCapabilities:
     """Build a validated immutable capability declaration."""
 
-    normalized = frozenset(
-        stage if isinstance(stage, PipelineStage) else PipelineStage(stage)
-        for stage in stages
-    )
     if not worker.strip():
         raise ValueError("worker must be non-empty")
+    normalized = frozenset(
+        stage if isinstance(stage, Stage) else Stage(stage) for stage in stages
+    )
     return WorkerCapabilities(worker=worker, stages=normalized)
