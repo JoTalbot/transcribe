@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from .dependencies import dependencies
@@ -38,6 +39,13 @@ class ExchangeCoordinator:
             return True
         if not processing.exists():
             return False
+        try:
+            payload = json.loads(processing.read_text(encoding="utf-8"))
+            marker = JobEnvelope(**payload)
+            if marker.job_id != job_id or not marker.recording_id.strip() or not marker.stage.strip() or not marker.worker or not marker.lease_id:
+                return True
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            return True
         current = self.repository.get_job(job_id)
         if current is None or current.status != "running":
             self.quarantine_result(processing, "orphaned processing marker after lease recovery")
