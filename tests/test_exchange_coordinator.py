@@ -65,6 +65,30 @@ def test_completed_dependency_dispatches_next_stage_with_artifact(tmp_path: Path
     assert [item.job_id for item in dispatches] == [normalize_id]
     request = exchange.get_request(normalize_id)
     assert request.input_artifact_id == "rec-2:ingest:json"
+    assert request.input_artifact_ids == ("rec-2:ingest:json",)
+    assert request.input_path is None
+
+
+def test_dispatches_all_multi_stage_dependency_artifacts(tmp_path: Path):
+    repository = InMemoryRepository()
+    repository.put_recording(Recording("rec-link", "/audio/link.wav"))
+    topics_id = stable_job_id("rec-link", "topics")
+    embeddings_id = stable_job_id("rec-link", "embeddings")
+    linking_id = stable_job_id("rec-link", "linking")
+    repository.put_job(ExecutionJob(topics_id, "rec-link", "topics", "completed", artifact_id="rec-link:topics:json"))
+    repository.put_job(ExecutionJob(embeddings_id, "rec-link", "embeddings", "completed", artifact_id="rec-link:embeddings:json"))
+    repository.put_job(ExecutionJob(linking_id, "rec-link", "linking"))
+
+    exchange = FileExchange(tmp_path / "exchange")
+    dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready("rec-link")
+
+    assert [item.job_id for item in dispatches] == [linking_id]
+    request = exchange.get_request(linking_id)
+    assert request.input_artifact_id == "rec-link:topics:json"
+    assert request.input_artifact_ids == (
+        "rec-link:topics:json",
+        "rec-link:embeddings:json",
+    )
     assert request.input_path is None
 
 
