@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from scripts.colab_exchange_worker import dry_run_processor, process_one as process_colab_one
+from scripts.oracle_local_worker import process_one as process_oracle_one
 from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
 from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
@@ -101,6 +103,18 @@ class LeaseHarnessRepository(InMemoryRepository):
         )
 
 
+class StubProcessor:
+    def __init__(self, output_prefix: str):
+        self.output_prefix = output_prefix
+
+    def process(self, request):
+        return ResultEnvelope(
+            request.job_id,
+            "completed",
+            artifact_id=f"{self.output_prefix}:{request.recording_id}:{request.stage}:artifact",
+        )
+
+
 def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Path):
     repository = LeaseHarnessRepository()
     recording_id = "rec-cross-worker"
@@ -114,6 +128,8 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
         exchange,
         worker_capabilities={ORACLE_LOCAL.worker: ORACLE_LOCAL, COLAB_GPU.worker: COLAB_GPU},
     )
+    oracle_audio = StubProcessor("oracle-audio")
+    oracle_intelligence = StubProcessor("oracle-intelligence")
 
     expected_workers = {
         Stage.INGEST: ORACLE_LOCAL.worker,
@@ -137,17 +153,11 @@ def test_full_nine_stage_pipeline_crosses_oracle_and_colab_workers(tmp_path: Pat
                 request = exchange.get_request(request_path.stem)
                 observed_workers[request.stage] = request.worker
                 observed_inputs[request.stage] = request.input_artifact_ids
-                artifact = f"{recording_id}:{request.stage}:artifact"
-                exchange.put_result(
-                    ResultEnvelope(
-                        request.job_id,
-                        "completed",
-                        artifact_id=artifact,
-                        worker=request.worker,
-                        lease_id=request.lease_id,
-                    )
-                )
-                request_path.unlink()
+                if request.worker == ORACLE_LOCAL.worker:
+                    result = process_oracle_one(exchange, request.job_id, oracle_audio, oracle_intelligence)
+                else:
+                    result = process_colab_one(exchange, request.job_id, dry_run_processor)
+                assert result is not None
             continue
         if all(repository.get_job(stable_job_id(recording_id, stage.value)).status == "completed" for stage in Stage):
             break
