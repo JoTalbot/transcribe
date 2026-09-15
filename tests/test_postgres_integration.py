@@ -148,6 +148,32 @@ def test_reclaimed_lease_rejects_stale_worker_completion(postgres_database) -> N
         _close_repository(second)
 
 
+def test_release_returns_owned_lease_to_retry_and_rejects_foreign_owner(postgres_database) -> None:
+    repo = _repository(postgres_database)
+    try:
+        _seed(repo)
+        claimed = repo.claim_job("r:asr", "worker-a", lease_seconds=30)
+        assert claimed is not None and claimed.lease_id
+
+        with pytest.raises(RuntimeError, match="lease release rejected"):
+            repo.release("r:asr", "worker-b", claimed.lease_id, "foreign release")
+
+        released = repo.release("r:asr", "worker-a", claimed.lease_id, "exchange publish failed")
+        assert released.status == "retry"
+        assert released.attempt == 1
+        assert released.worker is None
+        assert released.lease_id is None
+        assert released.lease_until is None
+        assert released.error == "exchange publish failed"
+
+        reclaimed = repo.claim_job("r:asr", "worker-b", lease_seconds=30)
+        assert reclaimed is not None
+        assert reclaimed.attempt == 2
+        assert reclaimed.worker == "worker-b"
+    finally:
+        _close_repository(repo)
+
+
 def test_heartbeat_extends_only_the_current_lease(postgres_database) -> None:
     repo = _repository(postgres_database)
     try:
@@ -245,7 +271,9 @@ def test_exchange_accepts_current_lease_and_quarantines_reclaimed_worker_result(
 
         exchange.put_result(ResultEnvelope("r:ingest", "completed", artifact_id="fresh", worker="worker-b", lease_id=reclaimed.lease_id))
         assert coordinator.apply_results() == 1
-        assert repository.get_job("r:ingest").status == "completed"
-        assert repository.get_job("r:ingest").artifact_id == "fresh"
+        current = repository.get_job("r:ingest")
+        assert current is not None
+        assert current.status == "completed"
+        assert current.artifact_id == "fresh"
     finally:
         _close_repository(repository)
