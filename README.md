@@ -15,17 +15,17 @@ Oracle / orchestrator
     |
     +--> PostgreSQL canonical state + stable jobs
     |
-    +--> submit_exchange_jobs.py ---> Drive/exchange/jobs/*.json
-                                      |
-                                      v
-                               Colab GPU worker
-                               Whisper + Pyannote
-                                      |
-                                      v
-                               output + manifests
-                                      |
-                                      v
-                               exchange/results/*.json
+    +--> oracle_worker.py ---> Drive/exchange/jobs/*.json
+                               |
+                               v
+                        Colab GPU worker
+                        Whisper + Pyannote
+                               |
+                               v
+                        output + manifests
+                               |
+                               v
+                        exchange/results/*.json
 ```
 
 The manifest path is the source of truth for locating audio. A `recording_id` is derived from the relative path, so the worker must not assume that the ID is the original filename. Exchange envelopes therefore carry the exact `input_path`.
@@ -63,17 +63,30 @@ For a dry planning/inspection run without dispatching workers:
 python scripts/run_pipeline.py --manifest state/manifest.json --plan-only
 ```
 
-Then dispatch ready jobs for the Colab worker:
+Then run the persistent Oracle scheduler. It opens a fresh PostgreSQL connection for every cycle, applies exchange results before reclaiming stale leases, and dispatches only through the lease-aware scheduler:
 
 ```bash
-python scripts/submit_exchange_jobs.py \
+export TRANSCRIBE_WORKER=oracle-1
+python scripts/oracle_worker.py \
   --manifest state/manifest.json \
-  --exchange /path/to/transcribe/exchange
+  --exchange /path/to/transcribe/exchange \
+  --interval 15
 ```
 
-The seeding command creates missing recordings and stable stage jobs in PostgreSQL and never overwrites an existing execution job. It also rejects a manifest path that conflicts with canonical database state. The dispatch command validates manifest paths against PostgreSQL and uses lease-aware scheduling, so repeated submission is safe.
+For a single safe cycle:
+
+```bash
+python scripts/oracle_worker.py \
+  --manifest state/manifest.json \
+  --exchange /path/to/transcribe/exchange \
+  --once
+```
+
+The daemon handles `SIGINT`/`SIGTERM` gracefully and does not keep a PostgreSQL connection open between cycles. A cycle failure is allowed to surface rather than being silently swallowed, so a process supervisor can restart it and operators retain a visible failure signal.
 
 The Colab exchange worker watches `exchange/jobs`, claims requests into `processing`, runs GPU inference, writes `exchange/results`, and removes the processing marker after completion or failure.
+
+The seeding command creates missing recordings and stable stage jobs in PostgreSQL and never overwrites an existing execution job. It also rejects a manifest path that conflicts with canonical database state. The dispatch command validates manifest paths against PostgreSQL and uses lease-aware scheduling, so repeated submission is safe.
 
 ## Outputs
 
