@@ -163,7 +163,7 @@ class LocalIntelligenceProcessor:
             "nodes": [nodes[key] for key in sorted(nodes)],
             "edges": sorted(edges, key=lambda item: (item["source"], item["target"])),
         })
-        return artifact_id
+        return ResultEnvelope(request.job_id, "completed", artifact_id=artifact_id, worker=request.worker, lease_id=request.lease_id)
 
     def process(self, request: JobEnvelope) -> ResultEnvelope:
         handlers = {
