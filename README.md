@@ -82,7 +82,7 @@ python scripts/oracle_worker.py \
   --once
 ```
 
-The daemon handles `SIGINT`/`SIGTERM` gracefully and does not keep a PostgreSQL connection open between cycles. A cycle failure is allowed to surface rather than being silently swallowed, so a process supervisor can restart it and operators retain a visible failure signal.
+The daemon handles `SIGINT`/`SIGTERM` gracefully, logs transient cycle failures, continues with the normal interval, and does not keep a PostgreSQL connection open between cycles. This is intentional: a single temporary database or exchange failure must not kill the durable Oracle scheduler, while the error remains visible in the worker log.
 
 The Colab exchange worker watches `exchange/jobs`, claims requests into `processing`, runs GPU inference, writes `exchange/results`, and removes the processing marker after completion or failure.
 
