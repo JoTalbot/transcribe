@@ -127,26 +127,36 @@ class ExchangeCoordinator:
             try:
                 result = self.exchange.get_result(path.stem)
                 job = self.repository.get_job(result.job_id)
-                if job is None:
-                    raise KeyError(f"unknown job: {result.job_id}")
-                complete = getattr(self.repository, "complete", None)
-                fail = getattr(self.repository, "fail", None)
-                if callable(complete) and callable(fail):
-                    if result.worker != job.worker or result.lease_id != job.lease_id:
-                        raise ExchangeError(f"stale or foreign result for job {result.job_id}")
-                    if result.status == "completed":
-                        if not result.artifact_id:
-                            raise ValueError("completed result requires artifact_id")
-                        complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
-                    elif result.status == "failed":
-                        fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
-                    else:
-                        raise ValueError("result status must be completed or failed")
-                    changed += 1
-                else:
-                    changed += int(apply_result(self.repository, result))
             except (ExchangeError, KeyError, ValueError) as exc:
                 self.quarantine_result(path, str(exc))
+                continue
+
+            if job is None:
+                self.quarantine_result(path, f"unknown job: {result.job_id}")
+                continue
+
+            complete = getattr(self.repository, "complete", None)
+            fail = getattr(self.repository, "fail", None)
+            if callable(complete) and callable(fail):
+                if result.worker != job.worker or result.lease_id != job.lease_id:
+                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
+                    continue
+                if result.status == "completed":
+                    if not result.artifact_id:
+                        self.quarantine_result(path, "completed result requires artifact_id")
+                        continue
+                    complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                elif result.status == "failed":
+                    fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
+                else:
+                    self.quarantine_result(path, "result status must be completed or failed")
+                    continue
+                changed += 1
+            else:
+                try:
+                    changed += int(apply_result(self.repository, result))
+                except (ExchangeError, KeyError, ValueError) as exc:
+                    self.quarantine_result(path, str(exc))
         return changed
 
     def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
