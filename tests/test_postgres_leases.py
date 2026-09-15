@@ -8,6 +8,8 @@ import uuid
 import pytest
 import psycopg
 
+from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
+from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
 from transcribe_intelligence.job_store import ExecutionJob
 from transcribe_intelligence.repository import Recording
 from transcribe_intelligence.sql_repository import SqlRepository
@@ -136,3 +138,48 @@ def test_expired_lease_recovery_requeues_job(postgres_schema):
         assert job.status == "retry"
         assert job.worker is None
         assert job.lease_id is None
+
+
+def test_coordinator_quarantines_stale_result_after_postgres_reclaim(postgres_schema, tmp_path: Path):
+    seed_job(postgres_schema)
+    exchange = FileExchange(tmp_path / "exchange")
+
+    with connect(postgres_schema) as connection:
+        repository = SqlRepository(connection)
+        first = repository.claim_job("r1:asr", "worker-a", lease_seconds=60)
+        assert first is not None
+
+    result_path = exchange.put_result(
+        ResultEnvelope(
+            "r1:asr",
+            "completed",
+            artifact_id="stale-artifact",
+            worker="worker-a",
+            lease_id=first.lease_id,
+        )
+    )
+
+    with connect(postgres_schema) as connection:
+        connection.execute(
+            "UPDATE execution_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE job_id = %s",
+            ("r1:asr",),
+        )
+        connection.commit()
+        second = SqlRepository(connection).claim_job("r1:asr", "worker-b", lease_seconds=60)
+        assert second is not None
+        assert second.lease_id != first.lease_id
+
+    with connect(postgres_schema) as connection:
+        repository = SqlRepository(connection)
+        changed = ExchangeCoordinator(repository, exchange).apply_results()
+        assert changed == 0
+        current = repository.get_job("r1:asr")
+        assert current is not None
+        assert current.status == "running"
+        assert current.worker == "worker-b"
+        assert current.lease_id == second.lease_id
+
+    assert not result_path.exists()
+    quarantined = exchange.results / "quarantine" / result_path.name
+    assert quarantined.exists()
+    assert "stale or foreign result" in quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
