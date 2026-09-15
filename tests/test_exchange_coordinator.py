@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator, ready_jobs
 from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
@@ -135,6 +137,44 @@ def test_apply_results_quarantines_conflicting_result(tmp_path: Path):
     assert changed == 0
     assert repository.get_job(job_id).artifact_id == "artifact-a"
     assert (exchange.results / "quarantine" / f"{job_id}.json").exists()
+
+
+def test_apply_results_propagates_repository_runtime_error_and_keeps_result(tmp_path: Path):
+    class FailingRepository(InMemoryRepository):
+        def complete(self, job_id: str, worker: str, lease_id: str, artifact_id: str):
+            raise RuntimeError("database temporarily unavailable")
+
+    repository = FailingRepository()
+    repository.put_recording(Recording("rec-runtime", "/audio/runtime.wav"))
+    job_id = stable_job_id("rec-runtime", "ingest")
+    repository.put_job(
+        ExecutionJob(
+            job_id,
+            "rec-runtime",
+            "ingest",
+            "running",
+            attempt=1,
+            worker="colab",
+            lease_id="lease-runtime",
+        )
+    )
+
+    exchange = FileExchange(tmp_path / "exchange")
+    result_path = exchange.put_result(
+        ResultEnvelope(
+            job_id,
+            "completed",
+            artifact_id="rec-runtime:ingest:json",
+            worker="colab",
+            lease_id="lease-runtime",
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="database temporarily unavailable"):
+        ExchangeCoordinator(repository, exchange).apply_results()
+
+    assert result_path.exists()
+    assert not (exchange.results / "quarantine" / result_path.name).exists()
 
 
 def test_ready_jobs_is_deterministic_and_ignores_running_jobs():
