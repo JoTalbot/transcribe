@@ -14,7 +14,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Callable
 
-from submit_exchange_jobs import dispatch_manifest, load_manifest
+from scripts.submit_exchange_jobs import dispatch_manifest, load_manifest
 from transcribe_intelligence.exchange import FileExchange
 
 
