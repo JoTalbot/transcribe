@@ -62,16 +62,17 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 16. Добавлены проверки cross-recording и cross-stage artifact binding.
 17. Восстановлен полный Colab exchange worker после неполной промежуточной версии и исправлен импорт `src` при прямом запуске script entrypoint.
 18. Синхронизирована документация Colab exchange с фактическим production worker и canonical `requests/processing/results/artifacts` layout.
+19. Синхронизирован статусный документ с фактическим `main` и последними CI runs.
 
 ## CI
 
-Текущий `main` commit: `963e6b2f52d3bc3fddd4cbaceb937d89e3033838`.
+Текущий `main` commit: `7cc45ede3fd8ecc8d5fb6f0a748f546671455589`.
 
 Для этого commit фактически прошли GitHub Actions:
 
-- `Validate` run `#453` — **success**.
-- `CI Smoke` run `#357` — **success**.
-- `Auto Retry Failed CI` не потребовался для исправления ошибки.
+- `Validate` run `#454` — **success**.
+- `CI Smoke` run `#358` — **success**.
+- `Auto Retry Failed CI` — skipped, поскольку автоматический retry не потребовался.
 
 `Validate` прошёл compile, notebook JSON/structure, conversation schema, lint, PostgreSQL-backed tests, script entrypoints и repository validation. `CI Smoke` прошёл repository validation и Oracle-local worker smoke.
 
