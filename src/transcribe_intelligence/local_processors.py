@@ -60,7 +60,17 @@ class LocalAudioProcessor:
         if not target.exists():
             temporary = target.with_suffix(target.suffix + ".tmp")
             shutil.copyfile(source, temporary)
-            temporary.replace(target)
+            try:
+                target.hardlink_to(temporary)
+            except FileExistsError:
+                temporary.unlink(missing_ok=True)
+            except OSError as exc:
+                temporary.unlink(missing_ok=True)
+                raise LocalProcessorError(f"cannot publish ingest artifact atomically: {target}") from exc
+            else:
+                temporary.unlink(missing_ok=True)
+        if not target.is_file():
+            raise LocalProcessorError(f"ingest artifact was not created: {target}")
         manifest = self._write_manifest(
             target,
             artifact_id=f"{request.recording_id}:ingest:source",
@@ -105,7 +115,17 @@ class LocalAudioProcessor:
             except subprocess.CalledProcessError as exc:
                 detail = (exc.stderr or "ffmpeg failed").strip()
                 raise LocalProcessorError(f"ffmpeg normalize failed: {detail}") from exc
-            temporary.replace(target)
+            try:
+                target.hardlink_to(temporary)
+            except FileExistsError:
+                temporary.unlink(missing_ok=True)
+            except OSError as exc:
+                temporary.unlink(missing_ok=True)
+                raise LocalProcessorError(f"cannot publish normalize artifact atomically: {target}") from exc
+            else:
+                temporary.unlink(missing_ok=True)
+        if not target.is_file():
+            raise LocalProcessorError(f"normalize artifact was not created: {target}")
         output = self._write_manifest(
             target,
             artifact_id=f"{request.recording_id}:normalize:audio",
