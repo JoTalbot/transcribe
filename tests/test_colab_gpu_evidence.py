@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from scripts.colab_gpu_evidence import collect, collect_artifacts
-from transcribe_intelligence.artifacts import build_manifest, write_manifest
+from transcribe_intelligence.artifacts import build_manifest, sha256_file, write_manifest
 
 
 def test_collect_artifacts_verifies_manifest_and_reports_metadata(tmp_path: Path):
@@ -68,6 +68,8 @@ def test_collect_includes_worker_runtime_metrics(tmp_path: Path):
     assert len(runtime) == 1
     assert runtime[0]["verified"] is True
     assert runtime[0]["metrics"]["wall_clock_seconds"] == 12.5
+    assert runtime[0]["size_bytes"] == metrics.stat().st_size
+    assert runtime[0]["sha256"] == sha256_file(metrics)
 
 
 def test_collect_marks_malformed_worker_metrics_unverified(tmp_path: Path):
