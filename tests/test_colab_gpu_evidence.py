@@ -54,11 +54,39 @@ def test_collect_artifacts_marks_tampered_artifact_unverified(tmp_path: Path):
     assert "checksum" in evidence[0]["error"]
 
 
+def test_collect_includes_worker_runtime_metrics(tmp_path: Path):
+    metrics = tmp_path / "worker-metrics-1.json"
+    metrics.write_text(
+        '{"schema_version":1,"wall_clock_seconds":12.5,"model_load_seconds":{"total_model_load_seconds":8.0},"jobs":[]}',
+        encoding="utf-8",
+    )
+
+    evidence = collect(tmp_path)
+
+    assert evidence["schema_version"] == 2
+    runtime = evidence["runtime"]["worker_metrics"]
+    assert len(runtime) == 1
+    assert runtime[0]["verified"] is True
+    assert runtime[0]["metrics"]["wall_clock_seconds"] == 12.5
+
+
+def test_collect_marks_malformed_worker_metrics_unverified(tmp_path: Path):
+    metrics = tmp_path / "worker-metrics-bad.json"
+    metrics.write_text("not-json", encoding="utf-8")
+
+    evidence = collect(tmp_path)
+
+    runtime = evidence["runtime"]["worker_metrics"]
+    assert runtime[0]["verified"] is False
+    assert "JSON" in runtime[0]["error"]
+
+
 def test_collect_has_stable_schema_without_gpu_requirement(tmp_path: Path):
     evidence = collect(tmp_path)
 
-    assert evidence["schema_version"] == 1
+    assert evidence["schema_version"] == 2
     assert "gpu" in evidence
+    assert "runtime" in evidence
     assert "packages" in evidence
     assert evidence["gpu"]["cuda_available"] is False or isinstance(evidence["gpu"]["cuda_available"], bool)
 
