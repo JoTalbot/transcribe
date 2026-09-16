@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from transcribe_intelligence.exchange import FileExchange, JobEnvelope
+from transcribe_intelligence.exchange import FileExchange
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
 from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
 from transcribe_intelligence.repository import InMemoryRepository, Recording
@@ -20,14 +20,16 @@ def test_stale_request_after_lease_reclaim_is_quarantined_and_redispatched(tmp_p
     assert stale.worker == "worker-a"
     assert stale.lease_id
 
-    # Simulate PostgreSQL lease recovery while the Drive request was never consumed.
+    # Simulate lease recovery while the Drive request was never consumed.
+    current = repository.get_job(job_id)
+    assert current is not None
     repository.update_job(
         ExecutionJob(
             job_id,
             "rec-stale-request",
             "ingest",
             "retry",
-            attempt=stale_attempt := repository.get_job(job_id).attempt,
+            attempt=current.attempt,
             error="lease expired",
         )
     )
