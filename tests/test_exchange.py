@@ -15,7 +15,7 @@ def test_request_and_result_round_trip(tmp_path: Path) -> None:
 
     assert exchange.get_request("r1:asr") == request
     assert exchange.get_result("r1:asr") == result
-    assert exchange.list_requests() == [tmp_path / "exchange" / "jobs" / "r1:asr.json"]
+    assert exchange.list_requests() == [tmp_path / "exchange" / "requests" / "r1:asr.json"]
 
 
 def test_result_requires_artifact_when_completed(tmp_path: Path) -> None:
