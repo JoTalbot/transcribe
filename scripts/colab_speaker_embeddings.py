@@ -1,7 +1,7 @@
 """Extract normalized ECAPA speaker embeddings from diarized audio in Colab."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import argparse
 import json
 from pathlib import Path
@@ -11,8 +11,7 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from transcribe_intelligence.artifacts import build_manifest, write_manifest
-from transcribe_intelligence.embedding_store import EmbeddingStore
+from transcribe_intelligence.artifacts import build_manifest, write_immutable_text, write_manifest
 from transcribe_intelligence.speaker_embeddings import SpeakerEmbedding
 
 
@@ -110,11 +109,14 @@ def extract_and_persist(
     model_version = config.model_name
     embeddings = extract_embeddings(audio, diarized_json, embedder, recording_id, model_version, config)
     output_dir.mkdir(parents=True, exist_ok=True)
-    store = EmbeddingStore(output_dir / "speaker_embeddings.json")
-    for embedding in embeddings:
-        store.upsert(embedding)
+    output = output_dir / "speaker_embeddings.json"
+    payload = {
+        "schema_version": "1.0",
+        "embeddings": {embedding.embedding_id: asdict(embedding) for embedding in embeddings},
+    }
+    write_immutable_text(output, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     manifest = build_manifest(
-        output_dir / "speaker_embeddings.json",
+        output,
         artifact_id=f"{recording_id}:embeddings:json",
         recording_id=recording_id,
         stage="embeddings",
