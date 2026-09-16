@@ -1,0 +1,61 @@
+from pathlib import Path
+
+from scripts.colab_gpu_evidence import collect, collect_artifacts
+from transcribe_intelligence.artifacts import build_manifest, write_manifest
+
+
+def test_collect_artifacts_verifies_manifest_and_reports_metadata(tmp_path: Path):
+    root = tmp_path / "artifacts"
+    artifact = root / "r1" / "asr" / "result.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"text":"hello"}\n', encoding="utf-8")
+    manifest = build_manifest(
+        artifact,
+        artifact_id="r1:asr:json",
+        recording_id="r1",
+        stage="asr",
+        kind="json",
+        producer="test",
+        model_version="large-v3",
+    )
+    write_manifest(manifest, artifact.with_suffix(artifact.suffix + ".manifest.json"))
+
+    evidence = collect_artifacts(root)
+
+    assert len(evidence) == 1
+    assert evidence[0]["artifact_id"] == "r1:asr:json"
+    assert evidence[0]["stage"] == "asr"
+    assert evidence[0]["model_version"] == "large-v3"
+    assert evidence[0]["verified"] is True
+    assert evidence[0]["size_bytes"] == artifact.stat().st_size
+
+
+def test_collect_artifacts_marks_tampered_artifact_unverified(tmp_path: Path):
+    root = tmp_path / "artifacts"
+    artifact = root / "r1" / "normalize" / "audio.wav"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"original")
+    manifest = build_manifest(
+        artifact,
+        artifact_id="r1:normalize:audio",
+        recording_id="r1",
+        stage="normalize",
+        kind="audio",
+        producer="test",
+    )
+    write_manifest(manifest, artifact.with_suffix(artifact.suffix + ".manifest.json"))
+    artifact.write_bytes(b"tampered")
+
+    evidence = collect_artifacts(root)
+
+    assert evidence[0]["verified"] is False
+    assert "checksum" in evidence[0]["error"]
+
+
+def test_collect_has_stable_schema_without_gpu_requirement(tmp_path: Path):
+    evidence = collect(tmp_path)
+
+    assert evidence["schema_version"] == 1
+    assert "gpu" in evidence
+    assert "packages" in evidence
+    assert evidence["gpu"]["cuda_available"] is False or isinstance(evidence["gpu"]["cuda_available"], bool)
