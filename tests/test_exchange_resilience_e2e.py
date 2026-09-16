@@ -29,7 +29,15 @@ def test_dispatch_does_not_duplicate_claimed_exchange_job(tmp_path: Path):
     repository = InMemoryRepository()
     repository.put_recording(Recording("rec-8", "/audio/eight.wav"))
     job_id = stable_job_id("rec-8", "ingest")
-    job = ExecutionJob(job_id, "rec-8", "ingest", "running", attempt=1, worker="colab", lease_id="lease-8")
+    job = ExecutionJob(
+        job_id,
+        "rec-8",
+        "ingest",
+        "running",
+        attempt=1,
+        worker="colab",
+        lease_id="lease-8",
+    )
     repository.put_job(job)
     exchange = FileExchange(tmp_path / "exchange")
     processing = exchange.root / "processing"
