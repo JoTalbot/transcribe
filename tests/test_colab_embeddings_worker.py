@@ -1,11 +1,13 @@
 from pathlib import Path
 
 import scripts.colab_exchange_worker as colab_worker
+import scripts.colab_speaker_embeddings as embedding_module
 from scripts.colab_exchange_worker import build_processor, process_one
 from scripts.colab_inference import InferenceConfig
 from scripts.colab_speaker_embeddings import EmbeddingConfig
 from transcribe_intelligence.artifacts import build_manifest, write_manifest
 from transcribe_intelligence.exchange import FileExchange, JobEnvelope
+from transcribe_intelligence.speaker_embeddings import SpeakerEmbedding
 
 
 def _publish_artifact(root: Path, artifact_id: str, recording_id: str, stage: str, kind: str, name: str, payload: bytes) -> Path:
@@ -103,3 +105,36 @@ def test_colab_embeddings_entrypoint_resolves_shared_artifacts_and_publishes_res
     assert not (exchange.root / "processing" / f"{job_id}.json").exists()
     assert (exchange.results / f"{job_id}.json").is_file()
     assert (artifacts / recording_id / "embeddings" / "speaker_embeddings.manifest.json").is_file()
+
+
+def test_colab_embedding_artifact_is_not_replaced_after_publication(tmp_path: Path, monkeypatch):
+    output_dir = tmp_path / "embeddings"
+    output = output_dir / "speaker_embeddings.json"
+    existing = '{"schema_version":"1.0","embeddings":{}}\n'
+    output_dir.mkdir(parents=True)
+    output.write_text(existing, encoding="utf-8")
+
+    embedding = SpeakerEmbedding(
+        "rec-1:SPEAKER_00", "rec-1", "SPEAKER_00", (1.0, 0.0), "ecapa-v1", 0.0, 1.0
+    )
+    monkeypatch.setattr(
+        embedding_module,
+        "build_speechbrain_embedder",
+        lambda model, target_sample_rate: lambda audio, start, end: (1.0, 0.0),
+    )
+    monkeypatch.setattr(embedding_module, "extract_embeddings", lambda *args, **kwargs: [embedding])
+
+    try:
+        embedding_module.extract_and_persist(
+            audio=tmp_path / "audio.wav",
+            diarized_json=tmp_path / "diarization.json",
+            output_dir=output_dir,
+            recording_id="rec-1",
+            model=object(),
+        )
+    except ValueError as exc:
+        assert "artifact already exists with different content" in str(exc)
+    else:
+        raise AssertionError("immutable embedding artifact unexpectedly accepted replacement")
+
+    assert output.read_text(encoding="utf-8") == existing
