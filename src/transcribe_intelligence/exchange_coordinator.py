@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from .artifact_resolver import ArtifactResolutionError, ArtifactResolver
 from .dependencies import dependencies
 from .exchange import ExchangeError, FileExchange, JobEnvelope
 from .job_store import ExecutionJob
@@ -25,11 +26,20 @@ class Dispatch:
 class ExchangeCoordinator:
     """Drive one deterministic exchange cycle against a canonical repository."""
 
-    def __init__(self, repository: Repository, exchange: FileExchange, worker_capabilities: dict[str, WorkerCapabilities] | None = None, stage_workers: dict[Stage | str, str] | None = None):
+    def __init__(
+        self,
+        repository: Repository,
+        exchange: FileExchange,
+        worker_capabilities: dict[str, WorkerCapabilities] | None = None,
+        stage_workers: dict[Stage | str, str] | None = None,
+        verify_artifacts: bool = False,
+    ):
         self.repository = repository
         self.exchange = exchange
         self.worker_capabilities = worker_capabilities
         self.stage_workers = {stage if isinstance(stage, Stage) else Stage(stage): worker for stage, worker in (stage_workers or {}).items()}
+        self.verify_artifacts = verify_artifacts
+        self.artifact_resolver = ArtifactResolver(self.exchange.root / "artifacts") if verify_artifacts else None
 
     def _exchange_has_job(self, job_id: str) -> bool:
         request = self.exchange.requests / f"{job_id}.json"
@@ -157,6 +167,16 @@ class ExchangeCoordinator:
         current = self.repository.get_job(job.job_id)
         return current is not None and current.status == "running" and current.worker == worker and current.lease_id == lease_id
 
+    def _verify_result_artifact(self, result: object) -> None:
+        """Verify a completed result points to an available, untampered artifact."""
+        if not self.verify_artifacts:
+            return
+        artifact_id = getattr(result, "artifact_id", None)
+        if not artifact_id:
+            raise ArtifactResolutionError("completed result requires artifact_id")
+        assert self.artifact_resolver is not None
+        self.artifact_resolver.resolve_path(artifact_id)
+
     def apply_results(self) -> int:
         changed = 0
         for path in sorted(self.exchange.results.glob("*.json")):
@@ -177,6 +197,11 @@ class ExchangeCoordinator:
                     continue
                 if not result.artifact_id:
                     self.quarantine_result(path, "completed result requires artifact_id")
+                    continue
+                try:
+                    self._verify_result_artifact(result)
+                except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
+                    self.quarantine_result(path, f"invalid completed artifact for job {result.job_id}: {exc}")
                     continue
                 try:
                     complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
