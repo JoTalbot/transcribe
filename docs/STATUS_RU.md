@@ -60,17 +60,19 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 17. Исправлена reconciliation-логика Drive processed state с учётом Drive records и legacy local paths.
 18. Добавлена проверка `modifiedTime` для повторной загрузки изменённых Drive-файлов и сохранение их размера.
 19. Добавлены regression tests для Drive processed-state reconciliation; изменения объединены в `main` commit `f2c447e0d2f6fcc7c0600ac5d033dc385abf79bb`.
+20. После последующей синхронизации документации выполнена фактическая CI-проверка текущего `main` commit `2201eafddd92f2b174fcc2b1ef18fd02afa66365`.
 
 ## CI
 
-Последний явно проверенный CI остаётся привязанным к `0fbea7bfe4085b55a9d3263abb73d71ed56ffc1f`.
+Текущий `main` commit `2201eafddd92f2b174fcc2b1ef18fd02afa66365` имеет фактические GitHub Actions check runs:
 
-- `Validate #412` — **success**.
-- `CI Smoke #313` — **success**.
-- `Validate` успешно прошёл compile, notebook JSON/structure, conversation schema, lint, **PostgreSQL integration tests**, script entrypoints и repository validation.
-- `CI Smoke` успешно выполнил Oracle-local worker smoke.
-- Предыдущий `Validate #411` и `CI Smoke #312` также были зелёными.
-- Для merge commit `f2c447e0d2f6fcc7c0600ac5d033dc385abf79bb` отдельный результат CI в текущей проверке не подтверждён; поэтому новый commit не объявляется CI-verified без фактического run evidence.
+- `validate` — **success**.
+- `smoke` — **success**.
+- три `Auto Retry Failed CI` run для этого commit — **skipped**, то есть повторный запуск из-за ошибки не потребовался.
+- `validate` прошёл compile, notebook JSON/structure, conversation schema, lint, PostgreSQL-backed tests, script entrypoints и repository validation согласно workflow.
+- `smoke` прошёл Oracle-local worker smoke.
+
+Таким образом, **текущий commit CI-verified**. При этом CI не выполняет реальный GPU inference на Google Colab и не заменяет production E2E.
 
 ## Канонический 9-stage pipeline
 
