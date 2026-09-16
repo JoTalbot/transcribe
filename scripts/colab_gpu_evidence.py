@@ -16,7 +16,7 @@ for import_root in (SRC_ROOT, PROJECT_ROOT):
         sys.path.insert(0, str(import_root))
 
 from transcribe_intelligence.artifact_resolver import ArtifactResolver
-from transcribe_intelligence.artifacts import ArtifactManifest
+from transcribe_intelligence.artifacts import ArtifactManifest, write_immutable_text
 
 
 def _package_version(name: str) -> str | None:
@@ -116,8 +116,7 @@ def main() -> int:
     evidence = collect(args.root)
     payload = json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8")
+        write_immutable_text(args.output, payload)
     print(payload, end="")
     return 0
 
