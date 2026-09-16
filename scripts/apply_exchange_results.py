@@ -16,7 +16,7 @@ from transcribe_intelligence.sql_repository import SqlRepository
 
 def apply_exchange_results(exchange: FileExchange, repository: SqlRepository) -> int:
     """Apply exchange results through the lease-aware canonical repository."""
-    return ExchangeCoordinator(repository, exchange).apply_results()
+    return ExchangeCoordinator(repository, exchange, verify_artifacts=True).apply_results()
 
 
 def main() -> int:
