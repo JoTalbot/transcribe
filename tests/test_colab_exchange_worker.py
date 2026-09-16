@@ -1,8 +1,9 @@
 from pathlib import Path
+import time
 
 import pytest
 
-from scripts.colab_exchange_worker import dry_run_processor, process_one
+from scripts.colab_exchange_worker import dry_run_processor, process_one, write_metrics
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope
 
 
@@ -85,3 +86,18 @@ def test_process_one_never_overwrites_existing_processing_claim(tmp_path: Path):
     assert (exchange.requests / "j5.json").exists()
     assert (processing / "j5.json").read_text(encoding="utf-8").find("lease-old") >= 0
     assert not (exchange.results / "j5.json").exists()
+
+
+def test_write_metrics_uses_monotonic_elapsed_time(tmp_path: Path):
+    started_at_unix = time.time()
+    started_perf = time.perf_counter()
+    time.sleep(0.001)
+
+    path = write_metrics(tmp_path, started_at_unix, started_perf, {"total_model_load_seconds": 1.25}, [])
+    payload = __import__("json").loads(path.read_text(encoding="utf-8"))
+
+    assert payload["started_at_unix"] == started_at_unix
+    assert payload["wall_clock_seconds"] >= 0
+    assert payload["model_load_seconds"]["total_model_load_seconds"] == 1.25
+    assert payload["jobs"] == []
+    assert path.name.startswith("worker-metrics-")
