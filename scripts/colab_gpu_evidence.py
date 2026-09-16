@@ -101,11 +101,10 @@ def collect_runtime(root: Path) -> dict[str, object]:
             if not isinstance(payload, dict):
                 raise TypeError("metrics payload must be an object")
             metrics.append({"path": str(path), "verified": True, "metrics": payload})
-        except (OSError, json.JSONDecodeError, TypeError) as exc:
-            error = str(exc)
-            if isinstance(exc, json.JSONDecodeError):
-                error = f"JSON decode error: {error}"
-            metrics.append({"path": str(path), "verified": False, "error": error})
+        except json.JSONDecodeError as exc:
+            metrics.append({"path": str(path), "verified": False, "error": f"JSON decode error: {exc}"})
+        except (OSError, TypeError) as exc:
+            metrics.append({"path": str(path), "verified": False, "error": str(exc)})
     return {"worker_metrics": metrics}
 
 
