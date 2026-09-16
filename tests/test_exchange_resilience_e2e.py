@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from transcribe_intelligence.exchange import FileExchange, ResultEnvelope
+from transcribe_intelligence.exchange import FileExchange, JobEnvelope, ResultEnvelope
 from transcribe_intelligence.exchange_coordinator import ExchangeCoordinator
 from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
 from transcribe_intelligence.repository import InMemoryRepository, Recording
@@ -29,14 +29,18 @@ def test_dispatch_does_not_duplicate_claimed_exchange_job(tmp_path: Path):
     repository = InMemoryRepository()
     repository.put_recording(Recording("rec-8", "/audio/eight.wav"))
     job_id = stable_job_id("rec-8", "ingest")
-    repository.put_job(ExecutionJob(job_id, "rec-8", "ingest", "retry", attempt=1))
+    job = ExecutionJob(job_id, "rec-8", "ingest", "running", attempt=1, worker="colab", lease_id="lease-8")
+    repository.put_job(job)
     exchange = FileExchange(tmp_path / "exchange")
     processing = exchange.root / "processing"
     processing.mkdir(parents=True)
-    (processing / f"{job_id}.json").write_text("{}", encoding="utf-8")
+    exchange.put_request(JobEnvelope(job_id, "rec-8", "ingest", worker="colab", lease_id="lease-8"))
+    request = exchange.requests / f"{job_id}.json"
+    request.replace(processing / request.name)
 
     assert ExchangeCoordinator(repository, exchange).dispatch_ready("rec-8") == []
     assert repository.get_job(job_id).attempt == 1
+    assert (processing / f"{job_id}.json").exists()
 
 
 def test_heartbeat_refreshes_lease_without_changing_attempt():
