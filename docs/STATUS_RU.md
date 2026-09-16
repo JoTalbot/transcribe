@@ -6,7 +6,7 @@
 
 Ядро распределённого execution pipeline доведено до устойчивого PostgreSQL/lease/exchange уровня. **Полный 9-стадийный dry-run проходит в CI**, включая Oracle и Colab exchange worker entrypoints, capability routing и канонические artifact dependencies.
 
-Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Google Colab GPU **ещё не выполнен**, поэтому production-ready для полного пути пока не объявляется. Сначала тесты, потом распределённый хаос.
+Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Google Colab GPU **ещё не выполнен**, поэтому production-ready для полного пути пока не объявляется. Кодовая часть закрыта значительно дальше, чем физическая инфраструктура, что, к сожалению, является нормальным свойством распределённых систем.
 
 ### Проверено и усилено
 
@@ -34,8 +34,11 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Cross-worker regression test проходит через реальные `process_one()` entrypoints обоих worker'ов и проверяет весь 9-stage маршрут и exact dependency artifact IDs.
 - Успешно применённые exchange results удаляются после commit результата; stale/foreign/malformed results остаются в quarantine.
 - Colab transport сохраняет `worker + lease_id` от execution job до file-exchange request, чтобы результат нельзя было принять за другой lease.
-- README синхронизирован с Oracle daemon entrypoint.
-- Drive sync теперь сверяет обработанное состояние по reconciliation между Drive records и legacy local paths.
+- Artifact verification проверяет существование, размер, SHA-256, exchange-root confinement, recording binding и stage binding.
+- Processing marker со старым worker/lease после reclaim больше не блокирует повторный dispatch и уходит в quarantine.
+- Проверен сценарий foreign processing lease для уже running job.
+- Notebook CI проверяет наличие canonical Colab exchange worker, Drive paths и production model families.
+- Drive sync сверяет обработанное состояние по reconciliation между Drive records и legacy local paths.
 - Изменённые Drive-файлы повторно скачиваются по `modifiedTime`, при этом сохраняется `size`.
 - Добавлены regression tests для Drive processed-state reconciliation, повторной загрузки изменённого файла и пропуска неизменённого файла.
 
@@ -53,26 +56,26 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 10. Добавлен regression test на очистку `processing` после ошибки публикации результата.
 11. Исправлена обработка результата exchange: успешно применённый result больше не повторно попадает в stale/quarantine на следующем цикле.
 12. Добавлены capability-aware routing и cross-worker 9-stage regression проверки.
-13. Исправлен cross-worker dry-run test: production `dry_run_processor` сохранён с его контрактом `dry-run:<job_id>`, а тест использует отдельный canonical processor для проверки artifact routing.
-14. Lease identity сохранён через Colab backend и file exchange; добавлены regression tests на worker/lease propagation.
-15. Усилен recovery контроль `processing` marker: malformed/inconsistent marker консервативно блокирует dispatch, валидный orphaned marker после lease recovery уходит в quarantine.
-16. Статус CI синхронизирован после успешной проверки commit `0fbea7b`.
-17. Исправлена reconciliation-логика Drive processed state с учётом Drive records и legacy local paths.
-18. Добавлена проверка `modifiedTime` для повторной загрузки изменённых Drive-файлов и сохранение их размера.
-19. Добавлены regression tests для Drive processed-state reconciliation; изменения объединены в `main` commit `f2c447e0d2f6fcc7c0600ac5d033dc385abf79bb`.
-20. После последующей синхронизации документации выполнена фактическая CI-проверка текущего `main` commit `2201eafddd92f2b174fcc2b1ef18fd02afa66365`.
+13. Lease identity сохранён через Colab backend и file exchange; добавлены regression tests на worker/lease propagation.
+14. Усилен recovery контроль `processing` marker: malformed/inconsistent marker консервативно блокирует dispatch.
+15. Добавлена защита от foreign processing marker после смены lease.
+16. Добавлены проверки cross-recording и cross-stage artifact binding.
+17. Восстановлен полный Colab exchange worker после неполной промежуточной версии и исправлен импорт `src` при прямом запуске script entrypoint.
+18. Синхронизирована документация Colab exchange с фактическим production worker и canonical `requests/processing/results/artifacts` layout.
 
 ## CI
 
-Текущий `main` commit `2201eafddd92f2b174fcc2b1ef18fd02afa66365` имеет фактические GitHub Actions check runs:
+Текущий `main` commit: `f920b778d4a51237ff871aedd61ef51b6f98f807`.
 
-- `validate` — **success**.
-- `smoke` — **success**.
-- три `Auto Retry Failed CI` run для этого commit — **skipped**, то есть повторный запуск из-за ошибки не потребовался.
-- `validate` прошёл compile, notebook JSON/structure, conversation schema, lint, PostgreSQL-backed tests, script entrypoints и repository validation согласно workflow.
-- `smoke` прошёл Oracle-local worker smoke.
+Для этого commit фактически прошли GitHub Actions:
 
-Таким образом, **текущий commit CI-verified**. При этом CI не выполняет реальный GPU inference на Google Colab и не заменяет production E2E.
+- `Validate` run `#452` — **success**.
+- `CI Smoke` run `#356` — **success**.
+- `Auto Retry Failed CI` не потребовался для исправления ошибки.
+
+`Validate` прошёл compile, notebook JSON/structure, conversation schema, lint, PostgreSQL-backed tests, script entrypoints и repository validation. `CI Smoke` прошёл repository validation и Oracle-local worker smoke.
+
+Таким образом, **текущий main CI-verified**. CI не выполняет реальный GPU inference в Google Colab и поэтому не может закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
@@ -96,15 +99,20 @@ Dry-run доказывает логический маршрут и artifact dep
 
 ## Оставшийся production блок
 
-Главный незакрытый блок теперь не в очереди, lease или routing, а в **реальном межсредовом artifact transport + GPU E2E**:
+Главный незакрытый блок теперь не в очереди, lease, routing или artifact verification, а в **реальном межсредовом artifact transport + GPU E2E**:
 
-1. Зафиксировать production exchange layout для canonical artifacts между Oracle/Drive и Colab.
-2. Убедиться, что manifests и физические artifact files доступны Colab resolver'у после Oracle `normalize` и обратно после GPU stages.
-3. Выполнить реальный Colab GPU test на коротком тестовом аудио с `Whisper large-v3`, `pyannote/speaker-diarization-3.1` и SpeechBrain ECAPA.
-4. Проверить все 9 stages end-to-end с PostgreSQL lease ownership, включая reclaim/retry при прерывании worker.
-5. Зафиксировать время выполнения, VRAM/RAM и размеры artifacts для GPU stages.
-6. Проверить повторный запуск и отсутствие duplicate/corrupt artifacts.
-7. После успешного E2E выполнить ограниченный production smoke.
+1. Oracle создаёт canonical `source_audio` и `normalize:audio` artifacts.
+2. Эти artifacts физически доступны Colab через общий Drive exchange.
+3. Colab реально запускает Whisper `large-v3`.
+4. Затем реально запускаются pyannote `speaker-diarization-3.1` и SpeechBrain ECAPA.
+5. GPU artifacts возвращаются в exchange и принимаются Oracle/PostgreSQL.
+6. Все 9 stages доходят до `completed`.
+7. Выполняется повторный запуск и проверяется отсутствие duplicate/corrupt artifacts.
+8. Выполняется interruption/reclaim/retry smoke со старым и новым lease.
+9. Фиксируются wall-clock timings, RAM/VRAM и размеры artifacts.
+10. Только после этого можно считать физический production E2E подтверждённым.
+
+Для этого уже существует `docs/COLAB_GPU_E2E_CHECKLIST_RU.md` с пошаговым acceptance checklist.
 
 ## Ограничение
 
