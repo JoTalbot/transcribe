@@ -59,6 +59,17 @@ python scripts/colab_gpu_evidence.py \
 
 Keep the resulting JSON together with the execution logs and fill `docs/COLAB_GPU_E2E_EVIDENCE_TEMPLATE_RU.md`. The collector is evidence tooling only: running it without a real GPU pipeline does not turn a dry-run into physical E2E proof.
 
+## Artifact reconciliation audit
+
+The exchange artifact store has a read-only integrity audit for operational recovery and post-run verification. It scans manifests, detects duplicate artifact IDs, validates payload size and SHA-256, checks exchange-root confinement, and reports missing or orphan payloads. It never deletes or rewrites artifacts.
+
+```bash
+python scripts/audit_artifacts.py \
+  --root /content/drive/MyDrive/transcribe/exchange/artifacts
+```
+
+Use `--json` for machine-readable evidence. A non-zero exit status means the audit found an integrity issue and should block production acceptance until the artifact store is investigated.
+
 ## Dry-run versus physical E2E
 
 The repository contains deterministic transport and cross-worker dry-run tests, but those do not constitute proof that real GPU inference completed in Google Colab. Physical E2E acceptance still requires an actual Oracle → Google Drive exchange → Colab CUDA inference → artifact publication → Oracle result application run, with measured timing, RAM/VRAM usage, artifact sizes, and repeat/recovery checks.
