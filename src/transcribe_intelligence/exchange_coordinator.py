@@ -246,7 +246,7 @@ class ExchangeCoordinator:
                 continue
             complete = getattr(self.repository, "complete", None)
             fail = getattr(self.repository, "fail", None)
-            if result.status == "completed" and callable(complete):
+            if result.status == "completed" and callable(complete) and result.lease_id:
                 if result.worker != job.worker or result.lease_id != job.lease_id:
                     self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
                     continue
@@ -274,7 +274,7 @@ class ExchangeCoordinator:
                     except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
                         self.quarantine_result(path, f"invalid completed artifact for job {result.job_id}: {exc}")
                         continue
-                if result.status == "failed" and callable(fail):
+                if result.status == "failed" and callable(fail) and result.lease_id:
                     if result.worker != job.worker or result.lease_id != job.lease_id:
                         self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
                         continue
