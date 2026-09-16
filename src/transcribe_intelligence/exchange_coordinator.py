@@ -85,7 +85,7 @@ class ExchangeCoordinator:
             self.quarantine_result(processing, "orphaned processing marker after lease recovery")
             return False
         if current.status != "running":
-            self.quarantine_result(processing, "stale processing marker after lease change")
+            self.quarantine_result(processing, "orphaned processing marker after lease recovery")
             return False
         if (
             marker.recording_id != current.recording_id
