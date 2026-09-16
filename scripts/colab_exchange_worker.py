@@ -182,13 +182,13 @@ def _runtime_memory_bytes() -> int | None:
     return int(usage.ru_maxrss * 1024)
 
 
-def write_metrics(output_dir: Path, started_at: float, model_timings: dict[str, float], jobs: list[dict[str, object]]) -> Path:
+def write_metrics(output_dir: Path, started_at_unix: float, started_perf: float, model_timings: dict[str, float], jobs: list[dict[str, object]]) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics = {
         "schema_version": 1,
-        "started_at_unix": started_at,
+        "started_at_unix": started_at_unix,
         "finished_at_unix": time.time(),
-        "wall_clock_seconds": time.perf_counter() - started_at,
+        "wall_clock_seconds": time.perf_counter() - started_perf,
         "max_rss_bytes": _runtime_memory_bytes(),
         "model_load_seconds": model_timings,
         "jobs": jobs,
@@ -210,7 +210,8 @@ def main() -> int:
     if args.poll < 1:
         parser.error("--poll must be at least 1 second")
 
-    started_at = time.time()
+    started_at_unix = time.time()
+    started_perf = time.perf_counter()
     config = InferenceConfig()
     embedding_config = EmbeddingConfig()
     whisper, diarizer, embedder, model_timings = load_models(config, embedding_config)
@@ -230,7 +231,7 @@ def main() -> int:
             time.sleep(args.poll)
     finally:
         if args.metrics_output:
-            metrics_path = write_metrics(args.metrics_output, started_at, model_timings, jobs)
+            metrics_path = write_metrics(args.metrics_output, started_at_unix, started_perf, model_timings, jobs)
             print(f"metrics\t{metrics_path}", flush=True)
 
 
