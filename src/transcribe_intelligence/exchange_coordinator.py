@@ -167,15 +167,23 @@ class ExchangeCoordinator:
         current = self.repository.get_job(job.job_id)
         return current is not None and current.status == "running" and current.worker == worker and current.lease_id == lease_id
 
-    def _verify_result_artifact(self, result: object) -> None:
-        """Verify a completed result points to an available, untampered artifact."""
+    def _verify_result_artifact(self, result: object, job: ExecutionJob | None = None) -> None:
+        """Verify a completed result points to an available, untampered, job-bound artifact."""
         if not self.verify_artifacts:
             return
         artifact_id = getattr(result, "artifact_id", None)
         if not artifact_id:
             raise ArtifactResolutionError("completed result requires artifact_id")
         assert self.artifact_resolver is not None
-        self.artifact_resolver.resolve_path(artifact_id)
+        if job is None:
+            self.artifact_resolver.resolve_path(artifact_id)
+            return
+        manifest = self.artifact_resolver.resolve_for(
+            artifact_id,
+            recording_id=job.recording_id,
+            stage=job.stage,
+        )
+        self.artifact_resolver.resolve_path(manifest.artifact_id)
 
     def apply_results(self) -> int:
         changed = 0
@@ -199,7 +207,7 @@ class ExchangeCoordinator:
                     self.quarantine_result(path, "completed result requires artifact_id")
                     continue
                 try:
-                    self._verify_result_artifact(result)
+                    self._verify_result_artifact(result, job)
                 except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
                     self.quarantine_result(path, f"invalid completed artifact for job {result.job_id}: {exc}")
                     continue
@@ -215,7 +223,7 @@ class ExchangeCoordinator:
             else:
                 if result.status == "completed":
                     try:
-                        self._verify_result_artifact(result)
+                        self._verify_result_artifact(result, job)
                     except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
                         self.quarantine_result(path, f"invalid completed artifact for job {result.job_id}: {exc}")
                         continue
