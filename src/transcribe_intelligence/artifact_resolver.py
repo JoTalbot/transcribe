@@ -42,6 +42,17 @@ class ArtifactResolver:
         """Resolve an artifact ID to its manifest."""
         return self._find_manifest(artifact_id)[1]
 
+    def resolve_for(self, artifact_id: str, *, recording_id: str, stage: str) -> ArtifactManifest:
+        """Resolve an artifact and bind its manifest to the expected job identity."""
+        manifest = self.resolve(artifact_id)
+        if manifest.recording_id != recording_id:
+            raise ArtifactResolutionError(
+                f"artifact recording_id mismatch: expected {recording_id}, got {manifest.recording_id}"
+            )
+        if manifest.stage != stage:
+            raise ArtifactResolutionError(f"artifact stage mismatch: expected {stage}, got {manifest.stage}")
+        return manifest
+
     def resolve_path(self, artifact_id: str) -> Path:
         """Resolve and checksum-verify an artifact, supporting portable manifests."""
         manifest_path, manifest = self._find_manifest(artifact_id)
