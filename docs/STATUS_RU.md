@@ -53,15 +53,14 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 ## CI
 
-Последнее подтверждённое состояние runtime-кода:
+Последнее подтверждённое состояние `main`:
 
-- `7f7326493d23a112ef66fc61a612288cb8dfce7b` — `Validate #538`, **success**, run `35136116518`, job `104928796127`.
-- `7f7326493d23a112ef66fc61a612288cb8dfce7b` — `CI Smoke #443`, **success**, run `35136116746`, job `104928796160`.
+- `31dd047fc9bd89cf8cc23711add4340b2a827442` — текущий `main`, `ci: restrict validate workflow permissions`.
+- `Validate #542` — **success**, run `35146547401`, job `104963988081`, на этом SHA.
+- `CI Smoke #448` — **success**, run `35146547410`, job `104963988949`, на этом SHA.
 - Validate выполнил compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks.
-- Validate подтвердил **222 passed**.
-- Smoke подтвердил Oracle-local worker integration: **5 passed**.
-
-Текущий `main` содержит последующее документационное обновление статуса `481fb09c6ab71ac05a445dd283b8ab51bcde8b65`. Доступный commit-specific endpoint не показывает отдельные Validate/Smoke runs для этого документационного commit, поэтому CI результаты выше намеренно привязаны к проверенному runtime SHA, а не приписываются текущему SHA без evidence.
+- Smoke подтвердил Oracle-local worker integration.
+- `validate.yml` теперь явно ограничен `permissions: contents: read`; workflow не получает избыточных прав по умолчанию.
 
 CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не закрывают physical E2E gate.
 
