@@ -1,6 +1,6 @@
 # Статус проекта Transcribe
 
-Дата проверки: 2026-09-15
+Дата проверки: 2026-09-16
 
 ## Текущее состояние
 
@@ -35,6 +35,9 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Успешно применённые exchange results удаляются после commit результата; stale/foreign/malformed results остаются в quarantine.
 - Colab transport сохраняет `worker + lease_id` от execution job до file-exchange request, чтобы результат нельзя было принять за другой lease.
 - README синхронизирован с Oracle daemon entrypoint.
+- Drive sync теперь сверяет обработанное состояние по reconciliation между Drive records и legacy local paths.
+- Изменённые Drive-файлы повторно скачиваются по `modifiedTime`, при этом сохраняется `size`.
+- Добавлены regression tests для Drive processed-state reconciliation, повторной загрузки изменённого файла и пропуска неизменённого файла.
 
 ## Последние исправления
 
@@ -54,16 +57,20 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 14. Lease identity сохранён через Colab backend и file exchange; добавлены regression tests на worker/lease propagation.
 15. Усилен recovery контроль `processing` marker: malformed/inconsistent marker консервативно блокирует dispatch, валидный orphaned marker после lease recovery уходит в quarantine.
 16. Статус CI синхронизирован после успешной проверки commit `0fbea7b`.
+17. Исправлена reconciliation-логика Drive processed state с учётом Drive records и legacy local paths.
+18. Добавлена проверка `modifiedTime` для повторной загрузки изменённых Drive-файлов и сохранение их размера.
+19. Добавлены regression tests для Drive processed-state reconciliation; изменения объединены в `main` commit `f2c447e0d2f6fcc7c0600ac5d033dc385abf79bb`.
 
 ## CI
 
-Последний проверенный `main` — `0fbea7bfe4085b55a9d3263abb73d71ed56ffc1f`.
+Последний явно проверенный CI остаётся привязанным к `0fbea7bfe4085b55a9d3263abb73d71ed56ffc1f`.
 
 - `Validate #412` — **success**.
 - `CI Smoke #313` — **success**.
 - `Validate` успешно прошёл compile, notebook JSON/structure, conversation schema, lint, **PostgreSQL integration tests**, script entrypoints и repository validation.
 - `CI Smoke` успешно выполнил Oracle-local worker smoke.
 - Предыдущий `Validate #411` и `CI Smoke #312` также были зелёными.
+- Для merge commit `f2c447e0d2f6fcc7c0600ac5d033dc385abf79bb` отдельный результат CI в текущей проверке не подтверждён; поэтому новый commit не объявляется CI-verified без фактического run evidence.
 
 ## Канонический 9-stage pipeline
 
