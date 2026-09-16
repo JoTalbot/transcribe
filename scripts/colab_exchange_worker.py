@@ -30,6 +30,8 @@ def claim_request(exchange: FileExchange, job_id: str) -> Path:
     target = processing / source.name
     if not source.is_file():
         raise FileNotFoundError(source)
+    if target.exists():
+        raise ExchangeError(f"processing claim already exists for {job_id}")
     source.replace(target)
     return target
 
