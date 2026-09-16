@@ -63,7 +63,12 @@ def dispatch_manifest(manifest: dict[str, object], exchange: FileExchange, datab
                     f"manifest={paths[recording_id]!r}, database={stored.input_path!r}"
                 )
 
-        scheduler = Scheduler(repository, exchange, policy=RecoveryPolicy(max_attempts=max_attempts))
+        scheduler = Scheduler(
+            repository,
+            exchange,
+            policy=RecoveryPolicy(max_attempts=max_attempts),
+            verify_artifacts=True,
+        )
         report, dispatches = scheduler.run_once(recording_ids, worker=worker)
 
     for dispatch in dispatches:
