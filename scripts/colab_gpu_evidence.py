@@ -1,4 +1,4 @@
-"""Collect auditable Colab GPU and artifact evidence without exposing secrets."""
+"""Collect auditable Colab GPU, runtime, and artifact evidence without secrets."""
 from __future__ import annotations
 
 import argparse
@@ -90,9 +90,22 @@ def collect_artifacts(root: Path) -> list[dict[str, object]]:
     return artifacts
 
 
+def collect_runtime(root: Path) -> dict[str, object]:
+    metrics = []
+    for path in sorted(root.rglob("worker-metrics-*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise TypeError("metrics payload must be an object")
+            metrics.append({"path": str(path), "verified": True, "metrics": payload})
+        except (OSError, json.JSONDecodeError, TypeError) as exc:
+            metrics.append({"path": str(path), "verified": False, "error": str(exc)})
+    return {"worker_metrics": metrics}
+
+
 def collect(root: Path) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "collected_at_unix": time.time(),
         "python_version": platform.python_version(),
         "platform": platform.platform(),
@@ -104,13 +117,14 @@ def collect(root: Path) -> dict[str, object]:
             "transformers": _package_version("transformers"),
         },
         "gpu": collect_gpu(),
+        "runtime": collect_runtime(root),
         "artifacts": collect_artifacts(root),
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path, help="Artifact root containing *.manifest.json files")
+    parser.add_argument("--root", required=True, type=Path, help="Artifact root containing manifests and worker metrics")
     parser.add_argument("--output", type=Path, help="Optional JSON evidence output path")
     args = parser.parse_args()
     evidence = collect(args.root)
