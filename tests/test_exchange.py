@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -55,3 +56,27 @@ def test_job_id_cannot_escape_exchange_directory(tmp_path: Path, job_id: str) ->
 
     with pytest.raises(ValueError, match="single filesystem-safe path component"):
         exchange.get_result(job_id)
+
+
+def test_concurrent_writers_do_not_share_exchange_temp_file(tmp_path: Path) -> None:
+    exchange = FileExchange(tmp_path / "exchange")
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def writer(worker: str) -> None:
+        try:
+            barrier.wait(timeout=5)
+            exchange.put_request(JobEnvelope("concurrent", "r1", "asr", worker=worker, lease_id=worker))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(worker,)) for worker in ("worker-a", "worker-b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert not errors
+    stored = exchange.get_request("concurrent")
+    assert stored.worker in {"worker-a", "worker-b"}
+    assert not list((exchange.requests).glob(".*.tmp"))
