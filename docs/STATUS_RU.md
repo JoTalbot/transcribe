@@ -42,6 +42,8 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Drive sync сверяет обработанное состояние по reconciliation между Drive records и legacy local paths.
 - Изменённые Drive-файлы повторно скачиваются по `modifiedTime`, при этом сохраняется `size`.
 - Добавлены regression tests для Drive processed-state reconciliation, повторной загрузки изменённого файла и пропуска неизменённого файла.
+- Добавлен auditable Colab GPU evidence collector, который фиксирует GPU/CUDA/package metadata и проверяет artifact manifests, размер и SHA-256 без вывода секретов.
+- Для физического GPU E2E добавлен отдельный evidence template с timing, RAM/VRAM, model-load, artifact, repeat и interruption/reclaim полями.
 
 ## Последние исправления
 
@@ -63,24 +65,25 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 16. Добавлены проверки cross-recording и cross-stage artifact binding.
 17. Восстановлен полный Colab exchange worker после неполной промежуточной версии и исправлен импорт `src` при прямом запуске script entrypoint.
 18. Синхронизирована документация Colab exchange с фактическим production worker и canonical `requests/processing/results/artifacts` layout.
-19. Синхронизирован статусный документ с фактическим `main` и последними CI runs.
+19. Синхронизирован статусный документ с фактическим `main` и последними подтверждёнными CI runs.
 20. Добавлена защита Colab claim от перезаписи уже существующего `processing` marker.
 21. Добавлен regression test на отказ от перезаписи существующего Colab processing claim.
 22. Повторно синхронизированы main SHA и CI run numbers после документационного коммита.
 23. Перепроверен и повторно запущен отменённый `CI Smoke #363`; второй attempt завершился успешно.
 24. Добавлен отдельный auditable evidence template для физического Colab GPU E2E.
-25. Повторно синхронизирован статусный документ после подтверждения успешного второго attempt `CI Smoke #363`.
+25. Добавлен Colab GPU evidence collector с проверкой artifact manifests и GPU metadata.
+26. Исправлена совместимость evidence collector с публичным `ArtifactResolver` API и добавлены regression tests для verified/tampered artifacts.
+27. Документирован запуск evidence collector в Colab exchange contract.
 
 ## CI
 
-Фактически подтверждённые GitHub Actions для функционального состояния:
+Последнее фактически подтверждённое полное функциональное состояние:
 
-- `Validate #459` — **success**; прошли compile, notebook JSON/structure, schema, lint, tests, script entrypoints и repository structure.
+- `Validate #468` — **success** на commit `01a7dfee392be2bc0f34e59e9cf7d456fb3d613f`; прошли compile, notebook JSON/structure, schema, lint, tests, script entrypoints и repository structure.
 - `CI Smoke #363`, attempt 2 — **success**; прошли repository validation и Oracle-local worker smoke.
+- Для commit `0f5010442e768847f1f6a19267d5d264c2c2bae5` зафиксированы только служебные `Auto Retry Failed CI` runs со статусом `skipped`; отдельный успешный функциональный run для этого commit через доступный API на момент проверки не подтверждён.
 
-Первоначальный attempt `CI Smoke #363` был отменён concurrency-механизмом, после чего был выполнен повторный запуск. Успешный второй attempt является фактическим результатом проверки.
-
-Текущий `main` после документационной синхронизации: `29ba3b406d4f3c7a26886853aa8e66adf69706c8`. Новый commit документации должен пройти обычную CI-проверку. CI не выполняет реальный GPU inference в Google Colab и поэтому не может закрыть physical E2E gate.
+Текущий `main`: `0f5010442e768847f1f6a19267d5d264c2c2bae5`. Последний документационный commit не меняет runtime-логику. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
@@ -115,9 +118,10 @@ Dry-run доказывает логический маршрут и artifact dep
 7. Выполняется повторный запуск и проверяется отсутствие duplicate/corrupt artifacts.
 8. Выполняется interruption/reclaim/retry smoke со старым и новым lease.
 9. Фиксируются wall-clock timings, RAM/VRAM и размеры artifacts.
-10. Только после этого можно считать физический production E2E подтверждённым.
+10. Evidence collector сохраняет машиночитаемое подтверждение GPU/CUDA/package/artifact state.
+11. Только после этого можно считать физический production E2E подтверждённым.
 
-Для этого уже существует `docs/COLAB_GPU_E2E_CHECKLIST_RU.md` и `docs/COLAB_GPU_E2E_EVIDENCE_TEMPLATE_RU.md`.
+Для этого уже существуют `docs/COLAB_GPU_E2E_CHECKLIST_RU.md` и `docs/COLAB_GPU_E2E_EVIDENCE_TEMPLATE_RU.md`.
 
 ## Ограничение
 
