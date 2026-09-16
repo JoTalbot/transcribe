@@ -65,26 +65,27 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 16. Добавлены проверки cross-recording и cross-stage artifact binding.
 17. Восстановлен полный Colab exchange worker после неполной промежуточной версии и исправлен импорт `src` при прямом запуске script entrypoint.
 18. Синхронизирована документация Colab exchange с фактическим production worker и canonical `requests/processing/results/artifacts` layout.
-19. Синхронизирован статусный документ с фактическим `main` и последними подтверждёнными CI runs.
+19. Синхронизирован статусный документ с фактическим runtime baseline и последними подтверждёнными CI runs.
 20. Добавлена защита Colab claim от перезаписи уже существующего `processing` marker.
 21. Добавлен regression test на отказ от перезаписи существующего Colab processing claim.
-22. Повторно синхронизированы main SHA и CI run numbers после документационного коммита.
+22. Повторно синхронизированы runtime baseline и CI evidence после документационных коммитов.
 23. Перепроверен и повторно запущен отменённый `CI Smoke #363`; второй attempt завершился успешно.
 24. Добавлен отдельный auditable evidence template для физического Colab GPU E2E.
 25. Добавлен Colab GPU evidence collector с проверкой artifact manifests и GPU metadata.
 26. Исправлена совместимость evidence collector с публичным `ArtifactResolver` API и добавлены regression tests для verified/tampered artifacts.
 27. Документирован запуск evidence collector в Colab exchange contract.
-28. Подтверждены функциональные `Validate #471` и `CI Smoke #375` на текущей линии main после синхронизации evidence tooling.
+28. Подтверждены функциональные `Validate #471` и `CI Smoke #375` на runtime baseline после синхронизации evidence tooling.
+29. Подтверждены более новые функциональные `Validate #472` и `CI Smoke #376`; статус теперь не привязывает себя к SHA документационного коммита.
 
 ## CI
 
-Последнее фактически подтверждённое полное функциональное состояние:
+Последнее подтверждённое функциональное состояние runtime baseline:
 
-- `Validate #471` — **success**; все основные шаги прошли, включая checkout/setup Python, compile, notebook JSON/structure, conversation schema, lint, tests, script entrypoints и repository structure.
-- `CI Smoke #375` — **success**; прошли repository validation и `Exercise Oracle-local worker`.
-- Оба run завершились со статусом `completed / success` на текущей линии `main`.
+- `Validate #472` — **success**; все основные шаги прошли, включая checkout/setup Python, compile, notebook JSON/structure, conversation schema, lint, tests, script entrypoints и repository structure.
+- `CI Smoke #376` — **success**; прошли repository validation и `Exercise Oracle-local worker`.
+- Оба run завершились со статусом `completed / success`.
 
-Текущий `main`: `94bb0a68221de038ae49aad05c1ce3ff265ef5e6`. Последний commit синхронизирует статус и evidence tooling; runtime-код не изменён этим документационным обновлением. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
+Runtime baseline остаётся на последнем runtime-changing состоянии перед последующими docs-only синхронизациями. Документационные коммиты после него не изменяют execution/runtime код. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
