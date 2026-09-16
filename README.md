@@ -49,15 +49,19 @@ exchange/
 
 Requests and results are written atomically. PostgreSQL lease identity (`worker` + `lease_id`) is carried through the exchange and checked again before a result can change canonical state. This prevents a late worker from completing a job after its lease has been reclaimed.
 
-### 5-minute setup
+### 5-minute Colab setup
+
+The Colab notebook is the **GPU consumer**, not the queue seeder. A complete E2E run needs an Oracle/PostgreSQL job to exist before Colab can consume it.
 
 1. Accept the model terms for `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` on Hugging Face.
 2. Create a Hugging Face access token with read access. In Colab open **Secrets**, create `HUGGINGFACE_TOKEN`, and allow notebook access.
 3. Put a small test audio file into `MyDrive/transcribe/input`.
-4. Open `notebooks/transcribe_pipeline.ipynb` in Colab and use **Runtime -> Run all**.
-5. The notebook mounts `MyDrive/transcribe/exchange` and invokes the canonical `scripts/colab_exchange_worker.py`. Results are exchanged through `requests`, `processing`, `results`, and `artifacts`.
+4. On the Oracle/control-plane side, build or refresh the manifest and seed the canonical PostgreSQL queue, then run `scripts/oracle_worker.py` so the GPU stages are published into `exchange/requests/`.
+5. Open `notebooks/transcribe_pipeline.ipynb` in Colab and use **Runtime -> Run all**. The notebook mounts `MyDrive/transcribe/exchange` and invokes the canonical `scripts/colab_exchange_worker.py`.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JoTalbot/transcribe/blob/main/notebooks/transcribe_pipeline.ipynb)
+
+For a Colab-only smoke test, a valid request must already be present in `exchange/requests/`. Simply placing a WAV in `input/` does not create a PostgreSQL execution job or an exchange request.
 
 ## GitHub Actions secrets
 
