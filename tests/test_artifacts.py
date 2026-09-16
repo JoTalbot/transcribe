@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from transcribe_intelligence.artifacts import build_manifest, verify_manifest, write_manifest
+from transcribe_intelligence.artifacts import build_manifest, verify_manifest, write_immutable_text, write_manifest
 
 
 def test_artifact_manifest_round_trip_and_verification(tmp_path: Path):
@@ -30,3 +30,14 @@ def test_tampering_is_detected(tmp_path: Path):
 def test_missing_artifact_rejected(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         build_manifest(tmp_path / "missing", artifact_id="a1", recording_id="r1", stage="asr", kind="transcript", producer="test")
+
+
+def test_immutable_text_write_is_idempotent_and_rejects_changes(tmp_path: Path):
+    artifact = tmp_path / "result.txt"
+    write_immutable_text(artifact, "original\n")
+    write_immutable_text(artifact, "original\n")
+    assert artifact.read_text(encoding="utf-8") == "original\n"
+
+    with pytest.raises(ValueError, match="different content"):
+        write_immutable_text(artifact, "changed\n")
+    assert artifact.read_text(encoding="utf-8") == "original\n"
