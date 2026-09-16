@@ -63,7 +63,10 @@ def collect_artifacts(root: Path) -> list[dict[str, object]]:
         try:
             manifest = ArtifactManifest(**json.loads(manifest_path.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError, TypeError) as exc:
-            artifacts.append({"manifest": str(manifest_path), "verified": False, "error": str(exc)})
+            error = str(exc)
+            if isinstance(exc, json.JSONDecodeError):
+                error = f"JSON decode error: {error}"
+            artifacts.append({"manifest": str(manifest_path), "verified": False, "error": error})
             continue
         verified = False
         error = None
@@ -99,7 +102,10 @@ def collect_runtime(root: Path) -> dict[str, object]:
                 raise TypeError("metrics payload must be an object")
             metrics.append({"path": str(path), "verified": True, "metrics": payload})
         except (OSError, json.JSONDecodeError, TypeError) as exc:
-            metrics.append({"path": str(path), "verified": False, "error": str(exc)})
+            error = str(exc)
+            if isinstance(exc, json.JSONDecodeError):
+                error = f"JSON decode error: {error}"
+            metrics.append({"path": str(path), "verified": False, "error": error})
     return {"worker_metrics": metrics}
 
 
