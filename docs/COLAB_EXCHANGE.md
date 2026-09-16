@@ -17,7 +17,7 @@ A request contains `job_id`, `recording_id`, `stage`, `worker`, `lease_id`, and 
 
 A successful result contains `job_id`, `status=completed`, `artifact_id`, `worker`, and `lease_id`. A failed result contains `job_id`, `status=failed`, an error string, `worker`, and `lease_id`.
 
-Writers use atomic replacement so readers do not intentionally consume partially written JSON files. The Colab consumer first moves a request into `processing/`, validates the persisted lease identity, processes it, publishes a result, and removes the processing record. The control plane accepts a result only when the worker and lease still match the PostgreSQL job ownership. Stale or foreign results are quarantined instead of being applied.
+Exchange JSON writers use atomic replacement so readers do not intentionally consume partially written JSON files. Artifact manifests use exclusive creation and immutable identity: the first writer wins, identical repeats are idempotent, and a concurrent writer with different content is rejected rather than replacing the published manifest. The Colab consumer first moves a request into `processing/`, validates the persisted lease identity, processes it, publishes a result, and removes the processing record. The control plane accepts a result only when the worker and lease still match the PostgreSQL job ownership. Stale or foreign results are quarantined instead of being applied.
 
 Completed artifacts are immutable exchange outputs with manifests containing artifact ID, recording ID, stage, size, checksum, producer, and model version. Production result application verifies the manifest, checksum, exchange-root confinement, recording binding, and stage binding before completing the PostgreSQL job.
 
