@@ -47,6 +47,18 @@ The production worker requires a CUDA GPU and the Colab Secret `HUGGINGFACE_TOKE
 
 The repository's notebook `notebooks/transcribe_pipeline.ipynb` is the canonical Colab setup and exchange entrypoint. CI validates that the notebook references this worker, canonical Drive paths, and the three production model families.
 
+## Evidence collection
+
+After a physical run, collect a machine-readable snapshot of the Colab environment and every exchange artifact. The collector records package versions, CUDA/GPU information, artifact IDs, model versions, sizes, SHA-256 values, and checksum verification status. It does not read or print authentication secrets.
+
+```bash
+python scripts/colab_gpu_evidence.py \
+  --root /content/drive/MyDrive/transcribe/exchange/artifacts \
+  --output /content/drive/MyDrive/transcribe/exchange/colab_gpu_evidence.json
+```
+
+Keep the resulting JSON together with the execution logs and fill `docs/COLAB_GPU_E2E_EVIDENCE_TEMPLATE_RU.md`. The collector is evidence tooling only: running it without a real GPU pipeline does not turn a dry-run into physical E2E proof.
+
 ## Dry-run versus physical E2E
 
 The repository contains deterministic transport and cross-worker dry-run tests, but those do not constitute proof that real GPU inference completed in Google Colab. Physical E2E acceptance still requires an actual Oracle → Google Drive exchange → Colab CUDA inference → artifact publication → Oracle result application run, with measured timing, RAM/VRAM usage, artifact sizes, and repeat/recovery checks.
