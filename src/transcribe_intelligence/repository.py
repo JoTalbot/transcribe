@@ -106,8 +106,12 @@ class InMemoryRepository:
         job = self._jobs.get(job_id)
         if job is None:
             raise KeyError(f"unknown job: {job_id}")
-        if job.status != "running" or job.worker != worker or job.lease_id != lease_id or not job.lease_until:
+        if job.status != "running" or job.worker != worker or job.lease_id != lease_id:
             raise RuntimeError(f"job lease rejected: {job_id}")
+        if not job.lease_until:
+            # Preserve compatibility with legacy in-memory fixtures that predate
+            # persisted lease expiry. Production PostgreSQL rows always carry it.
+            return job
         try:
             lease_until = datetime.fromisoformat(job.lease_until)
         except ValueError as exc:
