@@ -102,3 +102,30 @@ def test_audit_reports_manifest_path_outside_root(tmp_path: Path) -> None:
     report = audit_artifacts(tmp_path)
 
     assert any(issue["type"] == "path_outside_root" for issue in report["issues"])
+
+
+def test_audit_reports_absolute_manifest_path_outside_root(tmp_path: Path) -> None:
+    payload = tmp_path / "payload.txt"
+    payload.write_text("payload\n", encoding="utf-8")
+    outside = tmp_path.parent / "outside-payload.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    try:
+        manifest = build_manifest(
+            artifact_id="absolute-outside",
+            recording_id="rec-1",
+            stage="ingest",
+            kind="text",
+            path=payload,
+            producer="test",
+            model_version="test-1",
+        )
+        payload_data = asdict(manifest)
+        payload_data["path"] = str(outside)
+        manifest_path = tmp_path / "absolute-outside.manifest.json"
+        manifest_path.write_text(json.dumps(payload_data), encoding="utf-8")
+
+        report = audit_artifacts(tmp_path)
+
+        assert any(issue["type"] == "path_outside_root" for issue in report["issues"])
+    finally:
+        outside.unlink(missing_ok=True)
