@@ -74,16 +74,17 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 25. Добавлен Colab GPU evidence collector с проверкой artifact manifests и GPU metadata.
 26. Исправлена совместимость evidence collector с публичным `ArtifactResolver` API и добавлены regression tests для verified/tampered artifacts.
 27. Документирован запуск evidence collector в Colab exchange contract.
+28. Подтверждены функциональные `Validate #471` и `CI Smoke #375` на текущей линии main после синхронизации evidence tooling.
 
 ## CI
 
 Последнее фактически подтверждённое полное функциональное состояние:
 
-- `Validate #468` — **success** на commit `01a7dfee392be2bc0f34e59e9cf7d456fb3d613f`; прошли compile, notebook JSON/structure, schema, lint, tests, script entrypoints и repository structure.
-- `CI Smoke #363`, attempt 2 — **success**; прошли repository validation и Oracle-local worker smoke.
-- Для commit `0f5010442e768847f1f6a19267d5d264c2c2bae5` зафиксированы только служебные `Auto Retry Failed CI` runs со статусом `skipped`; отдельный успешный функциональный run для этого commit через доступный API на момент проверки не подтверждён.
+- `Validate #471` — **success**; все основные шаги прошли, включая checkout/setup Python, compile, notebook JSON/structure, conversation schema, lint, tests, script entrypoints и repository structure.
+- `CI Smoke #375` — **success**; прошли repository validation и `Exercise Oracle-local worker`.
+- Оба run завершились со статусом `completed / success` на текущей линии `main`.
 
-Текущий `main`: `0f5010442e768847f1f6a19267d5d264c2c2bae5`. Последний документационный commit не меняет runtime-логику. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
+Текущий `main`: `94bb0a68221de038ae49aad05c1ce3ff265ef5e6`. Последний commit синхронизирует статус и evidence tooling; runtime-код не изменён этим документационным обновлением. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
