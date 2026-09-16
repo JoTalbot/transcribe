@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -197,9 +198,19 @@ class ExchangeCoordinator:
         path.unlink()
 
     def _lease_still_matches(self, job: ExecutionJob, worker: str | None, lease_id: str | None) -> bool:
-        """Re-check ownership after a lease-aware mutation rejects a result."""
+        """Re-check that the rejected result still belongs to a live lease."""
         current = self.repository.get_job(job.job_id)
-        return current is not None and current.status == "running" and current.worker == worker and current.lease_id == lease_id
+        if current is None or current.status != "running" or current.worker != worker or current.lease_id != lease_id:
+            return False
+        if not current.lease_until:
+            return False
+        try:
+            lease_until = datetime.fromisoformat(current.lease_until)
+        except ValueError:
+            return False
+        if lease_until.tzinfo is None:
+            lease_until = lease_until.replace(tzinfo=timezone.utc)
+        return lease_until > datetime.now(timezone.utc)
 
     def _verify_result_artifact(self, result: object, job: ExecutionJob | None = None) -> None:
         """Verify a completed result points to an available, untampered, job-bound artifact."""
