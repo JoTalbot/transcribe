@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from transcribe_intelligence.artifact_resolver import ArtifactResolver
-from transcribe_intelligence.artifacts import ArtifactManifest, build_manifest, write_manifest
+from transcribe_intelligence.artifacts import ArtifactManifest, build_manifest, write_immutable_text, write_manifest
 from transcribe_intelligence.exchange import JobEnvelope, ResultEnvelope
 
 
@@ -63,8 +63,7 @@ def resolve_audio(input_dir: Path, request: JobEnvelope, artifact_root: Path | N
 
 
 def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    write_immutable_text(path, text)
 
 
 def transcribe_asr_file(audio: Path, output_dir: Path, recording_id: str, config: InferenceConfig, whisper: Any) -> list[ArtifactManifest]:
