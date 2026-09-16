@@ -18,7 +18,7 @@ def test_dispatch_quarantines_malformed_request_and_retries_job(tmp_path: Path):
     request.parent.mkdir(parents=True, exist_ok=True)
     request.write_text("{not-json", encoding="utf-8")
 
-    dispatches = ExchangeCoordinator(repository).dispatch_ready(recording_id)
+    dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready(recording_id)
 
     assert [item.job_id for item in dispatches] == [job_id]
     assert repository.get_job(job_id).status == "running"
@@ -40,7 +40,7 @@ def test_dispatch_quarantines_malformed_processing_claim_and_retries_job(tmp_pat
     processing.parent.mkdir(parents=True, exist_ok=True)
     processing.write_text("{not-json", encoding="utf-8")
 
-    dispatches = ExchangeCoordinator(repository).dispatch_ready(recording_id)
+    dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready(recording_id)
 
     assert [item.job_id for item in dispatches] == [job_id]
     assert repository.get_job(job_id).status == "running"
@@ -65,7 +65,7 @@ def test_dispatch_quarantines_invalid_processing_claim_fields(tmp_path: Path):
         encoding="utf-8",
     )
 
-    dispatches = ExchangeCoordinator(repository).dispatch_ready(recording_id)
+    dispatches = ExchangeCoordinator(repository, exchange).dispatch_ready(recording_id)
 
     assert [item.job_id for item in dispatches] == [job_id]
     assert repository.get_job(job_id).status == "running"
