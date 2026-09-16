@@ -62,17 +62,21 @@ def audit_artifacts(root: Path) -> dict[str, object]:
                 )
 
     for manifest_path, manifest in manifests:
+        declared = Path(manifest.path).expanduser()
         candidates = _payload_candidates(manifest_path, manifest, root)
+        if declared.is_absolute():
+            declared_resolved = declared.resolve()
+            if not (root == declared_resolved or root in declared_resolved.parents):
+                issues.append(
+                    {
+                        "type": "path_outside_root",
+                        "artifact_id": manifest.artifact_id,
+                        "path": _relative(manifest_path, root),
+                        "declared_path": manifest.path,
+                    }
+                )
         in_root = [candidate for candidate in candidates if root == candidate or root in candidate.parents]
         if not in_root:
-            issues.append(
-                {
-                    "type": "path_outside_root",
-                    "artifact_id": manifest.artifact_id,
-                    "path": _relative(manifest_path, root),
-                    "declared_path": manifest.path,
-                }
-            )
             continue
         payload_path = next((candidate for candidate in in_root if candidate.is_file()), None)
         if payload_path is None:
