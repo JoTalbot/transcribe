@@ -21,6 +21,7 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Scheduler для DB-backed repository использует транзакционный `recover_stale()`.
 - Colab worker не оставляет malformed claim в `processing`: такой request отправляется в quarantine.
 - Colab worker не должен перезаписывать существующий `processing/<job>.json`; этот конфликт покрыт regression test.
+- Oracle local worker также защищает существующий `processing/<job>.json` от перезаписи; добавлен regression coverage.
 - Production bootstrap очереди создаёт recordings и stable stage jobs непосредственно в PostgreSQL.
 - `scripts/submit_exchange_jobs.py` работает через PostgreSQL + `Scheduler`/`ExchangeCoordinator`.
 - `scripts/apply_exchange_results.py` применяет результаты через PostgreSQL lease ownership.
@@ -47,6 +48,9 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Для физического GPU E2E добавлен отдельный evidence template с timing, RAM/VRAM, model-load, artifact, repeat и interruption/reclaim полями.
 - File exchange отвергает `job_id` с разделителями путей и NUL-байтом, чтобы exchange filename не мог выйти за пределы `requests/` или `results/`; защита покрыта regression test.
 - Atomic JSON writer больше не использует общий фиксированный `.tmp` путь: конкурентные writers получают независимые временные файлы, содержимое flush/fsync-ится перед replace; добавлен regression test конкурентной записи.
+- Artifact audit теперь отдельно выявляет `invalid_manifest`, duplicate artifact IDs, missing/orphan payloads, checksum/size mismatches и **любые declared paths вне artifact root, включая относительные `../...` пути**.
+- Artifact audit работает read-only и возвращает ненулевой exit code при обнаружении нарушений.
+- Canonical artifact publishers (`ingest`, `normalize`, ASR/diarization, local intelligence, speaker clustering, Colab embeddings) используют immutable publication semantics вместо перезаписи уже существующего payload.
 
 ## Последние исправления
 
@@ -83,16 +87,20 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 31. Устранена конкуренция за общий `.tmp` файл при записи exchange JSON: каждый writer теперь использует уникальный временный файл и fsync перед replace.
 32. Добавлен regression test на конкурентные writers одного exchange record.
 33. Добавлена regression-проверка stale request после lease reclaim: старый request уходит в quarantine, после чего job может быть повторно dispatch-нута с новым lease.
+34. Исправлена публикация Oracle-local artifacts: конкурентная попытка больше не может заменить уже существующий payload через `temporary.replace()`.
+35. Добавлены immutable publication checks для speaker clustering и Colab ECAPA embedding artifacts.
+36. Добавлена отдельная read-only проверка artifact store через `scripts/audit_artifacts.py` и regression coverage для duplicate/missing/orphan/checksum/path-boundary случаев.
+37. Исправлена проверка artifact audit для относительных путей вне root: `../outside/...` теперь корректно помечается как `path_outside_root`.
 
 ## CI
 
-Последнее подтверждённое функциональное состояние runtime baseline:
+Последнее подтверждённое состояние после artifact-audit hardening:
 
-- `Validate #472` — **success**; все основные шаги прошли, включая checkout/setup Python, compile, notebook JSON/structure, conversation schema, lint, tests, script entrypoints и repository structure.
-- `CI Smoke #376` — **success**; прошли repository validation и `Exercise Oracle-local worker`.
-- Оба run завершились со статусом `completed / success`.
-
-После runtime-hardening commits новые push-triggered Validate/CI Smoke результаты ещё не подтверждены этим аудитом. До их завершения предыдущие успешные runs остаются последним подтверждённым CI baseline. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
+- `Validate` для commit `8058c5b99237da1663ca7bf4b6087efd7e09d6d3` — **success**; run `35120817504`, job `104877835669`. Прошли compile, notebook JSON/structure, schema, lint, все тесты, entrypoints и repository structure.
+- `CI Smoke` для того же commit — **success**; run `35120817607`, job/check `104877837299`. Прошли repository validation и `Exercise Oracle-local worker`.
+- Два дополнительных автоматических `retry` check-run на этом SHA имеют статус `skipped`, что соответствует ожидаемому поведению и не является ошибкой.
+- Последний подтверждённый runtime baseline `Validate #472` / `CI Smoke #376` таким образом заменён более новым зелёным runtime baseline на commit `8058c5b9`.
+- CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
