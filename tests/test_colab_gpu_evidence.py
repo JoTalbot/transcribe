@@ -57,7 +57,7 @@ def test_collect_artifacts_marks_tampered_artifact_unverified(tmp_path: Path):
 def test_collect_includes_worker_runtime_metrics(tmp_path: Path):
     metrics = tmp_path / "worker-metrics-1.json"
     metrics.write_text(
-        '{"schema_version":1,"wall_clock_seconds":12.5,"model_load_seconds":{"total_model_load_seconds":8.0},"jobs":[]}',
+        '{"schema_version":1,"started_at_unix":1.0,"finished_at_unix":13.5,"wall_clock_seconds":12.5,"max_rss_bytes":100,"model_load_seconds":{"total_model_load_seconds":8.0},"jobs":[]}',
         encoding="utf-8",
     )
 
@@ -82,6 +82,20 @@ def test_collect_marks_malformed_worker_metrics_unverified(tmp_path: Path):
     assert runtime[0]["verified"] is False
     assert runtime[0]["error"]
     assert "json" in runtime[0]["error"].lower()
+
+
+def test_collect_marks_schema_invalid_worker_metrics_unverified(tmp_path: Path):
+    metrics = tmp_path / "worker-metrics-invalid-schema.json"
+    metrics.write_text(
+        '{"schema_version":1,"jobs":[]}',
+        encoding="utf-8",
+    )
+
+    evidence = collect(tmp_path)
+
+    runtime = evidence["runtime"]["worker_metrics"]
+    assert runtime[0]["verified"] is False
+    assert "missing required fields" in runtime[0]["error"]
 
 
 def test_collect_has_stable_schema_without_gpu_requirement(tmp_path: Path):
