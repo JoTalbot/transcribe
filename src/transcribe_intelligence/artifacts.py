@@ -48,6 +48,25 @@ def build_manifest(path: Path, *, artifact_id: str, recording_id: str, stage: st
     )
 
 
+def write_immutable_text(path: Path, text: str) -> None:
+    """Create text once; identical repeats are idempotent and changes are rejected."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return
+    except FileExistsError:
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"existing artifact is unreadable: {path}") from exc
+        if existing == text:
+            return
+        raise ValueError(f"artifact already exists with different content: {path}")
+
+
 def write_manifest(manifest: ArtifactManifest, path: Path) -> None:
     """Atomically persist an immutable JSON artifact manifest."""
     path.parent.mkdir(parents=True, exist_ok=True)
