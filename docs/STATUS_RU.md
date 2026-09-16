@@ -20,12 +20,13 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - PostgreSQL integration test покрывает dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
 - Scheduler для DB-backed repository использует транзакционный `recover_stale()`.
 - Colab worker не оставляет malformed claim в `processing`: такой request отправляется в quarantine.
+- Colab worker не должен перезаписывать существующий `processing/<job>.json`; этот конфликт покрыт regression test.
 - Production bootstrap очереди создаёт recordings и stable stage jobs непосредственно в PostgreSQL.
 - `scripts/submit_exchange_jobs.py` работает через PostgreSQL + `Scheduler`/`ExchangeCoordinator`.
 - `scripts/apply_exchange_results.py` применяет результаты через PostgreSQL lease ownership.
 - `scripts/oracle_worker.py` использует свежий PostgreSQL connection на цикл, применяет результаты, reclaim просроченных lease и dispatch через `Scheduler`/`ExchangeCoordinator`.
 - Oracle daemon переживает временный сбой одного цикла и продолжает работу.
-- Colab exchange worker очищает `processing` marker даже при неудаче публикации результата.
+- Colab exchange worker очищает `processing` marker после обработки, включая ошибочные пути; ошибка публикации результата не оставляет marker.
 - Добавлен dry-run контракт Oracle → exchange без GPU и production audio.
 - Capability routing разделяет `ingest`, `normalize`, `text_analysis`, `topics`, `linking`, `graph` на Oracle-local и `asr`, `diarization`, `embeddings` на Colab GPU.
 - Oracle worker имеет локальные processors для `ingest`, `normalize`, `text_analysis`, `topics`, `linking`, `graph`.
@@ -63,18 +64,20 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 17. Восстановлен полный Colab exchange worker после неполной промежуточной версии и исправлен импорт `src` при прямом запуске script entrypoint.
 18. Синхронизирована документация Colab exchange с фактическим production worker и canonical `requests/processing/results/artifacts` layout.
 19. Синхронизирован статусный документ с фактическим `main` и последними CI runs.
+20. Добавлена защита Colab claim от перезаписи уже существующего `processing` marker.
+21. Добавлен regression test на отказ от перезаписи существующего Colab processing claim.
 
 ## CI
 
-Текущий `main` commit: `7cc45ede3fd8ecc8d5fb6f0a748f546671455589`.
+Текущий `main` commit: `1d3b06e61185462117614e7141cd6838c66d1fda`.
 
-Для этого commit фактически прошли GitHub Actions:
+Для последнего изменения фактически прошёл GitHub Actions:
 
-- `Validate` run `#454` — **success**.
-- `CI Smoke` run `#358` — **success**.
-- `Auto Retry Failed CI` — skipped, поскольку автоматический retry не потребовался.
+- `CI Smoke` run `#361` — **success**.
 
-`Validate` прошёл compile, notebook JSON/structure, conversation schema, lint, PostgreSQL-backed tests, script entrypoints и repository validation. `CI Smoke` прошёл repository validation и Oracle-local worker smoke.
+В run `#361` успешно прошли checkout/setup на Node 24-compatible actions, установка зависимостей, repository validation и Oracle-local worker smoke. Ошибок в substantive steps нет.
+
+Предыдущий main CI-контур также был зелёным: `Validate #455` и `CI Smoke #359` для предшествующего синхронизированного main.
 
 Таким образом, **текущий main CI-verified**. CI не выполняет реальный GPU inference в Google Colab и поэтому не может закрыть physical E2E gate.
 
