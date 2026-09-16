@@ -182,6 +182,27 @@ def _runtime_memory_bytes() -> int | None:
     return int(usage.ru_maxrss * 1024)
 
 
+def _runtime_gpu_metrics() -> dict[str, object]:
+    try:
+        import torch
+    except ImportError:
+        return {"available": False, "reason": "torch unavailable"}
+    if not torch.cuda.is_available():
+        return {"available": False, "reason": "CUDA unavailable"}
+    device = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(device)
+    return {
+        "available": True,
+        "device": int(device),
+        "name": props.name,
+        "vram_total_bytes": int(props.total_memory),
+        "vram_allocated_bytes": int(torch.cuda.memory_allocated(device)),
+        "vram_reserved_bytes": int(torch.cuda.memory_reserved(device)),
+        "peak_vram_allocated_bytes": int(torch.cuda.max_memory_allocated(device)),
+        "peak_vram_reserved_bytes": int(torch.cuda.max_memory_reserved(device)),
+    }
+
+
 def write_metrics(output_dir: Path, started_at_unix: float, started_perf: float, model_timings: dict[str, float], jobs: list[dict[str, object]]) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics = {
@@ -191,6 +212,7 @@ def write_metrics(output_dir: Path, started_at_unix: float, started_perf: float,
         "wall_clock_seconds": time.perf_counter() - started_perf,
         "max_rss_bytes": _runtime_memory_bytes(),
         "model_load_seconds": model_timings,
+        "gpu": _runtime_gpu_metrics(),
         "jobs": jobs,
     }
     path = output_dir / f"worker-metrics-{time.time_ns()}.json"
