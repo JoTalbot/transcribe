@@ -45,7 +45,30 @@ class ExchangeCoordinator:
         request = self.exchange.requests / f"{job_id}.json"
         result = self.exchange.results / f"{job_id}.json"
         processing = self.exchange.root / "processing" / f"{job_id}.json"
-        if request.exists() or result.exists():
+        if result.exists():
+            return True
+        if request.exists():
+            try:
+                payload = json.loads(request.read_text(encoding="utf-8"))
+                marker = JobEnvelope(**payload)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+                return True
+            current = self.repository.get_job(job_id)
+            if current is None:
+                self.quarantine_result(request, "orphaned request after lease recovery")
+                return False
+            if current.status != "running":
+                self.quarantine_result(request, "orphaned request after lease recovery")
+                return False
+            if (
+                marker.job_id != job_id
+                or marker.recording_id != current.recording_id
+                or marker.stage != current.stage
+                or marker.worker != current.worker
+                or marker.lease_id != current.lease_id
+            ):
+                self.quarantine_result(request, "stale request after lease change")
+                return False
             return True
         if not processing.exists():
             return False
