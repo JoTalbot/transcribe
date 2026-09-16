@@ -46,7 +46,14 @@ jobs:
           nb = json.loads(p.read_text())
           assert nb['nbformat'] == 4
           assert isinstance(nb['cells'], list) and nb['cells']
-          print(f'Notebook valid: {len(nb["cells"])} cells')
+          source = '\n'.join(''.join(cell.get('source', [])) for cell in nb['cells'])
+          assert 'scripts/colab_exchange_worker.py' in source
+          assert '--root /content/drive/MyDrive/transcribe/exchange' in source
+          assert '--output /content/drive/MyDrive/transcribe/exchange/artifacts' in source
+          assert 'Whisper large-v3' in source
+          assert 'pyannote speaker-diarization-3.1' in source
+          assert 'SpeechBrain ECAPA' in source
+          print(f'Notebook valid: {len(nb["cells"])} cells; canonical exchange contract present')
           PY
       - name: Validate conversation schema
         run: python -m json.tool schemas/conversation.schema.json >/dev/null
