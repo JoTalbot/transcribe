@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from scripts.oracle_local_worker import process_one
-from transcribe_intelligence.exchange import FileExchange, JobEnvelope, ResultEnvelope
+from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 
 
 class StubProcessor:
@@ -82,6 +84,32 @@ def test_process_one_ignores_non_local_stage(tmp_path: Path) -> None:
     exchange.put_request(request)
 
     assert process_one(exchange, request.job_id, audio, intelligence) is None
+    assert exchange.get_request(request.job_id) == request
+    assert audio.calls == []
+    assert intelligence.calls == []
+
+
+def test_process_one_never_overwrites_existing_processing_claim(tmp_path: Path) -> None:
+    exchange = FileExchange(tmp_path / "exchange")
+    audio = StubProcessor("audio")
+    intelligence = StubProcessor("text")
+    request = JobEnvelope(
+        "recording:ingest",
+        "recording",
+        "ingest",
+        worker="oracle-local",
+        lease_id="lease-4",
+    )
+    exchange.put_request(request)
+    processing = exchange.root / "processing"
+    processing.mkdir(parents=True, exist_ok=True)
+    existing = processing / f"{request.job_id}.json"
+    existing.write_text("existing-claim\n", encoding="utf-8")
+
+    with pytest.raises(ExchangeError, match="processing claim already exists"):
+        process_one(exchange, request.job_id, audio, intelligence)
+
+    assert existing.read_text(encoding="utf-8") == "existing-claim\n"
     assert exchange.get_request(request.job_id) == request
     assert audio.calls == []
     assert intelligence.calls == []
