@@ -1,141 +1,62 @@
-"""Backend-neutral coordinator for dispatching jobs and consuming worker results."""
+"""Coordinate PostgreSQL job state with the filesystem exchange."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 from .artifact_resolver import ArtifactResolutionError, ArtifactResolver
-from .dependencies import dependencies
-from .exchange import ExchangeError, FileExchange, JobEnvelope
+from .exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 from .job_store import ExecutionJob
-from .pipeline_contract import Stage
+from .pipeline_contract import Stage, dependencies
 from .repository import Repository
 from .result_service import apply_result
-from .worker_capabilities import DEFAULT_STAGE_WORKERS, WorkerCapabilities
-
-
-@dataclass(frozen=True, slots=True)
-class Dispatch:
-    """A job transitioned to running and published to the worker exchange."""
-
-    job_id: str
-    request_path: str
+from .worker_capabilities import DEFAULT_WORKER_CAPABILITIES, DEFAULT_STAGE_WORKERS, WorkerCapability
 
 
 class ExchangeCoordinator:
-    """Drive one deterministic exchange cycle against a canonical repository."""
+    """Bridge durable execution state and worker exchange files."""
 
     def __init__(
         self,
         repository: Repository,
         exchange: FileExchange,
-        worker_capabilities: dict[str, WorkerCapabilities] | None = None,
-        stage_workers: dict[Stage | str, str] | None = None,
+        *,
+        worker_capabilities: dict[str, WorkerCapability] | None = None,
+        stage_workers: dict[Stage, str] | None = None,
+        artifact_root: Path | None = None,
         verify_artifacts: bool = False,
-    ):
+    ) -> None:
         self.repository = repository
         self.exchange = exchange
         self.worker_capabilities = worker_capabilities
-        self.stage_workers = {stage if isinstance(stage, Stage) else Stage(stage): worker for stage, worker in (stage_workers or {}).items()}
+        self.stage_workers = stage_workers or DEFAULT_STAGE_WORKERS
+        self.artifact_root = artifact_root
         self.verify_artifacts = verify_artifacts
-        self.artifact_resolver = ArtifactResolver(self.exchange.root / "artifacts") if verify_artifacts else None
+        self.artifact_resolver = ArtifactResolver(artifact_root) if artifact_root is not None else None
 
     def _exchange_has_job(self, job_id: str) -> bool:
-        request = self.exchange.requests / f"{job_id}.json"
-        result = self.exchange.results / f"{job_id}.json"
-        processing = self.exchange.root / "processing" / f"{job_id}.json"
-        if result.exists():
-            return True
-        if request.exists():
-            try:
-                payload = json.loads(request.read_text(encoding="utf-8"))
-                marker = JobEnvelope(**payload)
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
-                return True
-            current = self.repository.get_job(job_id)
-            if current is None:
-                self.quarantine_result(request, "orphaned request after lease recovery")
-                return False
-            if current.status != "running":
-                self.quarantine_result(request, "orphaned request after lease recovery")
-                return False
-            if (
-                marker.job_id != job_id
-                or marker.recording_id != current.recording_id
-                or marker.stage != current.stage
-                or marker.worker != current.worker
-                or marker.lease_id != current.lease_id
-            ):
-                self.quarantine_result(request, "stale request after lease change")
-                return False
-            return True
-        if not processing.exists():
-            return False
-        try:
-            payload = json.loads(processing.read_text(encoding="utf-8"))
-            marker = JobEnvelope(**payload)
-            if marker.job_id != job_id or not marker.recording_id.strip() or not marker.stage.strip() or not marker.worker or not marker.lease_id:
-                return True
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
-            return True
-        current = self.repository.get_job(job_id)
-        if current is None:
-            self.quarantine_result(processing, "orphaned processing marker after lease recovery")
-            return False
-        if current.status != "running":
-            self.quarantine_result(processing, "orphaned processing marker after lease recovery")
-            return False
-        if (
-            marker.recording_id != current.recording_id
-            or marker.stage != current.stage
-            or marker.worker != current.worker
-            or marker.lease_id != current.lease_id
-        ):
-            self.quarantine_result(processing, "stale processing marker after lease change")
-            return False
-        return True
+        return self.exchange.has_request(job_id) or self.exchange.has_processing(job_id)
+
+    def _target_worker(self, stage: Stage, fallback: str) -> str | None:
+        target = self.stage_workers.get(stage, fallback)
+        if self.worker_capabilities is None:
+            return fallback
+        capabilities = self.worker_capabilities.get(target)
+        return target if capabilities is not None and capabilities.supports(stage) else None
 
     def _claim(self, job: ExecutionJob, worker: str) -> ExecutionJob | None:
         claim_job = getattr(self.repository, "claim_job", None)
         if callable(claim_job):
             return claim_job(job.job_id, worker)
+        if job.status not in {"queued", "retry"}:
+            return None
         return self.repository.update_job(job.next_attempt(worker))
 
-    def _release(self, job: ExecutionJob, error: str) -> None:
-        """Return a claimed job to retry without leaving a long-lived lease."""
+    def _release(self, job: ExecutionJob, error: str) -> ExecutionJob:
         release = getattr(self.repository, "release", None)
-        if callable(release) and job.worker and job.lease_id:
-            release(job.job_id, job.worker, job.lease_id, error)
-            return
-        self.repository.update_job(ExecutionJob(job.job_id, job.recording_id, job.stage, "retry", job.attempt, job.artifact_id, None, error, job.updated_at, None, None, None))
-
-    def _target_worker(self, stage: Stage, fallback: str) -> str | None:
-        """Resolve an explicit route or a deterministic capable default."""
-        explicit = self.stage_workers.get(stage)
-        if explicit is not None:
-            if self.worker_capabilities is None:
-                return explicit
-            capabilities = self.worker_capabilities.get(explicit)
-            return explicit if capabilities is not None and capabilities.supports(stage) else None
-        if fallback == "colab":
-            candidates = self.worker_capabilities
-            default_worker = DEFAULT_STAGE_WORKERS.get(stage)
-            if candidates is None:
-                return default_worker
-            if default_worker is not None:
-                capabilities = candidates.get(default_worker)
-                if capabilities is not None and capabilities.supports(stage):
-                    return default_worker
-            for worker_name in sorted(candidates):
-                if candidates[worker_name].supports(stage):
-                    return worker_name
-            return None
-        if self.worker_capabilities is None:
-            return fallback
-        capabilities = self.worker_capabilities.get(fallback)
-        return fallback if capabilities is not None and capabilities.supports(stage) else None
+        if callable(release) and job.lease_id:
+            return release(job.job_id, job.worker or "", job.lease_id, error)
+        return self.repository.update_job(ExecutionJob(job.job_id, job.recording_id, job.stage, "retry", job.attempt, job.artifact_id, None, error, job.updated_at, None, None, job.heartbeat_at))
 
     def dispatch_ready(self, recording_id: str, worker: str = "colab") -> list[Dispatch]:
         recording = self.repository.get_recording(recording_id)
@@ -176,9 +97,9 @@ class ExchangeCoordinator:
         if job is None:
             raise KeyError(f"unknown job: {job_id}")
         heartbeat = getattr(self.repository, "heartbeat", None)
-        if callable(heartbeat):
-            if not worker or not job.lease_id:
-                raise ValueError("worker and persisted lease_id are required")
+        if callable(heartbeat) and job.lease_id:
+            if not worker:
+                raise ValueError("worker is required for a leased job")
             return heartbeat(job_id, worker, job.lease_id)
         refreshed = job.heartbeat(worker)
         return self.repository.update_job(refreshed)
@@ -203,8 +124,6 @@ class ExchangeCoordinator:
         if current is None or current.status != "running" or current.worker != worker or current.lease_id != lease_id:
             return False
         if not current.lease_until:
-            # Legacy repository doubles may not persist an expiry. Ownership is
-            # still meaningful there; real transactional repositories persist it.
             return True
         try:
             lease_until = datetime.fromisoformat(current.lease_until)
@@ -268,7 +187,7 @@ class ExchangeCoordinator:
                 self._consume_result(path)
                 changed += 1
             else:
-                if result.status == "completed":
+                if result.status == "completed" and self.verify_artifacts:
                     try:
                         self._verify_result_artifact(result, job)
                     except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
@@ -299,20 +218,15 @@ class ExchangeCoordinator:
         return changed
 
     def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
-        """Apply available results, then dispatch the newly ready jobs."""
         changed = self.apply_results()
-        dispatches = self.dispatch_ready(recording_id, worker=worker)
-        return dispatches, changed
+        return self.dispatch_ready(recording_id, worker=worker), changed
+
+
+class Dispatch:
+    def __init__(self, job_id: str, path: str):
+        self.job_id = job_id
+        self.path = path
 
 
 def ready_jobs(jobs: list[ExecutionJob]) -> list[ExecutionJob]:
-    """Return deterministic queued jobs whose prerequisites are completed."""
-    completed = {(job.recording_id, job.stage): job.artifact_id for job in jobs if job.status == "completed" and job.artifact_id}
-    ready: list[ExecutionJob] = []
-    for job in jobs:
-        if job.status != "queued":
-            continue
-        required = dependencies(job.stage)
-        if all((job.recording_id, stage) in completed for stage in required):
-            ready.append(job)
-    return sorted(ready, key=lambda item: (item.recording_id, item.stage, item.job_id))
+    return sorted((job for job in jobs if job.status in {"queued", "retry"}), key=lambda job: job.job_id)
