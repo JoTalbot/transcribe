@@ -110,8 +110,11 @@ def test_verified_completed_result_rejects_missing_artifact_id(tmp_path: Path):
     repository = InMemoryRepository()
     job_id = _running_job(repository, "rec-no-id")
     exchange = FileExchange(tmp_path / "exchange")
-    result_path = exchange.put_result(
-        ResultEnvelope(job_id, "completed", worker="oracle", lease_id="lease-1")
+    result_path = exchange.results / f"{job_id}.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        '{"job_id": "' + job_id + '", "status": "completed", "worker": "oracle", "lease_id": "lease-1"}\n',
+        encoding="utf-8",
     )
 
     changed = ExchangeCoordinator(repository, exchange, verify_artifacts=True).apply_results()
