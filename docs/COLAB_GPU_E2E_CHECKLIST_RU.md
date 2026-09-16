@@ -1,6 +1,6 @@
 # Transcribe: чек-лист реального Colab GPU E2E
 
-Дата: 2026-09-15
+Дата: 2026-09-16
 
 ## Цель
 
@@ -32,6 +32,20 @@ python scripts/colab_exchange_worker.py \
 
 Для диагностики одного задания использовать `--once`.
 
+## Сбор машиночитаемого evidence
+
+После завершения базового E2E выполнить collector на том же artifact root:
+
+```bash
+python scripts/colab_gpu_evidence.py \
+  --root /content/drive/MyDrive/transcribe/exchange/artifacts \
+  --output /content/drive/MyDrive/transcribe/exchange/colab_gpu_evidence.json
+```
+
+Collector фиксирует GPU/CUDA/PyTorch/package metadata и проверяет каждый найденный artifact manifest, включая размер и SHA-256. Output публикуется immutable-режимом: существующий snapshot с другим содержимым не может быть молча перезаписан.
+
+Содержимое evidence не должно включать `HUGGINGFACE_TOKEN`, API keys, cookies или другие секреты.
+
 ## Критерии успешного E2E
 
 - `ingest` создаёт и публикует canonical `source_audio` artifact.
@@ -59,6 +73,8 @@ python scripts/colab_exchange_worker.py \
 - максимальное потребление RAM/VRAM;
 - размер входного аудио и всех ключевых artifacts.
 
+Collector автоматически фиксирует GPU/CUDA/package metadata и текущие artifact sizes/checksums. Wall-clock timing, peak system RAM и model-load/stage timings необходимо дополнить фактическими данными запуска в evidence template.
+
 ## Failure/recovery smoke
 
 После успешного базового E2E отдельно проверить:
@@ -70,6 +86,8 @@ python scripts/colab_exchange_worker.py \
 5. его quarantine;
 6. повторное выполнение задания новым lease;
 7. успешное завершение pipeline.
+
+После recovery снова запустить evidence collector и сохранить отдельный snapshot для нового состояния artifact store.
 
 ## Статус готовности
 
