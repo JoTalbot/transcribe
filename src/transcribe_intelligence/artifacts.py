@@ -67,10 +67,21 @@ def write_immutable_text(path: Path, text: str) -> None:
         raise ValueError(f"artifact already exists with different content: {path}")
 
 
+def _manifest_json(manifest: ArtifactManifest) -> str:
+    return json.dumps(asdict(manifest), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
 def write_manifest(manifest: ArtifactManifest, path: Path) -> None:
     """Atomically persist an immutable JSON artifact manifest."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
+    payload = _manifest_json(manifest)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return
+    except FileExistsError:
         try:
             existing = ArtifactManifest(**json.loads(path.read_text(encoding="utf-8")))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -78,17 +89,6 @@ def write_manifest(manifest: ArtifactManifest, path: Path) -> None:
         if existing != manifest:
             raise ValueError(f"artifact manifest already exists with different content: {path}")
         return
-
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(manifest), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def verify_manifest(manifest: ArtifactManifest) -> bool:
