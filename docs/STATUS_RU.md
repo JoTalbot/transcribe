@@ -67,21 +67,21 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 20. Добавлена защита Colab claim от перезаписи уже существующего `processing` marker.
 21. Добавлен regression test на отказ от перезаписи существующего Colab processing claim.
 22. Повторно синхронизированы main SHA и CI run numbers после документационного коммита.
+23. Перепроверен и повторно запущен отменённый `CI Smoke #363`; второй attempt завершился успешно.
+24. Добавлен отдельный auditable evidence template для физического Colab GPU E2E.
 
 ## CI
 
-Текущий `main` commit: `264e98921fb5e0b3bcc49cb4d1e4b8d3ca833a27`.
+Последний документированный основной commit перед этим обновлением: `fdc01f0f8ce6294e12fc3cdd7dcfad5542963d07`.
 
-Для этого main фактически прошли GitHub Actions:
+Фактически подтверждённые GitHub Actions:
 
-- `Validate` run `#458` — **success**.
-- `CI Smoke` run `#362` — **success**.
+- `Validate #459` — **success**; прошли compile, notebook JSON/structure, schema, lint, tests, script entrypoints и repository structure.
+- `CI Smoke #363`, attempt 2 — **success**; прошли repository validation и Oracle-local worker smoke.
 
-`Validate #458` успешно прошёл checkout/setup, Python compile, notebook JSON/structure validation, conversation schema validation, lint, tests, script entrypoints и repository structure checks.
+Первоначальный attempt `CI Smoke #363` был отменён concurrency-механизмом, после чего был выполнен повторный запуск. Успешный второй attempt является фактическим результатом проверки.
 
-`CI Smoke #362` успешно прошёл checkout/setup, установку зависимостей, repository validation и Oracle-local worker smoke.
-
-Таким образом, **текущий main CI-verified**. CI не выполняет реальный GPU inference в Google Colab и поэтому не может закрыть physical E2E gate.
+После этого обновления документации GitHub Actions должен снова проверить актуальный commit. CI не выполняет реальный GPU inference в Google Colab и поэтому не может закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
@@ -118,7 +118,7 @@ Dry-run доказывает логический маршрут и artifact dep
 9. Фиксируются wall-clock timings, RAM/VRAM и размеры artifacts.
 10. Только после этого можно считать физический production E2E подтверждённым.
 
-Для этого уже существует `docs/COLAB_GPU_E2E_CHECKLIST_RU.md` с пошаговым acceptance checklist.
+Для этого уже существует `docs/COLAB_GPU_E2E_CHECKLIST_RU.md` и `docs/COLAB_GPU_E2E_EVIDENCE_TEMPLATE_RU.md`.
 
 ## Ограничение
 
