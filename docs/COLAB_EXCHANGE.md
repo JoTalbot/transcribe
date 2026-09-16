@@ -43,6 +43,8 @@ python scripts/colab_exchange_worker.py \
   --poll 30
 ```
 
+The `--once` form is the preferred production validation mode for a managed Colab runtime. Continuous polling should only be used where the selected Colab runtime/product permits the workload. Google's current Colab FAQ states that free managed runtimes restrict distributed-computing workers and remote-control/web-UI patterns; resource availability and runtime lifetime are also not guaranteed. Do not treat `scripts/colab_worker.py` or the Playwright browser adapter as a way to bypass those restrictions. For guaranteed or continuously managed execution, use an appropriate paid Colab/GCP offering or a controlled local runtime instead.
+
 The production worker requires a CUDA GPU and the Colab Secret `HUGGINGFACE_TOKEN`. It loads Whisper `large-v3`, `pyannote/speaker-diarization-3.1`, and the SpeechBrain ECAPA speaker encoder. ASR, diarization, and embeddings consume dependency artifacts by ID rather than trusting arbitrary paths.
 
 The repository's notebook `notebooks/transcribe_pipeline.ipynb` is the canonical Colab setup and exchange entrypoint. CI validates that the notebook references this worker, canonical Drive paths, and the three production model families.
