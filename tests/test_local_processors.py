@@ -33,6 +33,24 @@ def test_ingest_creates_canonical_source_artifact(tmp_path: Path):
     assert (root / "rec1" / "ingest" / "rec1_ingest_source.manifest.json").is_file()
 
 
+def test_ingest_does_not_replace_existing_artifact(tmp_path: Path):
+    source = tmp_path / "input.wav"
+    source.write_bytes(b"source-audio")
+    root = tmp_path / "exchange"
+    processor = LocalAudioProcessor(root)
+
+    first = processor.process(JobEnvelope("j1", "rec1", "ingest", input_path=str(source)))
+    artifact = root / "rec1" / "ingest" / "rec1.source.wav"
+    original = artifact.read_bytes()
+
+    source.write_bytes(b"different-source")
+    with pytest.raises(ValueError, match="artifact manifest already exists with different content"):
+        processor.process(JobEnvelope("j2", "rec1", "ingest", input_path=str(source)))
+
+    assert first.artifact_id == "rec1:ingest:source"
+    assert artifact.read_bytes() == original
+
+
 def test_normalize_resolves_input_artifact_and_produces_pcm_wav(tmp_path: Path):
     source = tmp_path / "input.wav"
     _wav(source)
