@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from .artifact_resolver import ArtifactResolver
-from .artifacts import build_manifest, write_manifest
+from .artifacts import build_manifest, write_immutable_text, write_manifest
 from .exchange import ExchangeError, JobEnvelope, ResultEnvelope
 
 _WORD = re.compile(r"[\wА-Яа-яЁёІіЇїЄєҐґ'-]{3,}")
@@ -45,7 +45,7 @@ class LocalIntelligenceProcessor:
         directory.mkdir(parents=True, exist_ok=True)
         artifact_id = f"{recording_id}:{stage}:json"
         path = directory / f"{recording_id}.{stage}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        write_immutable_text(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         manifest = build_manifest(
             path,
             artifact_id=artifact_id,
