@@ -80,8 +80,9 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 28. Подтверждены функциональные `Validate #471` и `CI Smoke #375` на runtime baseline после синхронизации evidence tooling.
 29. Подтверждены более новые функциональные `Validate #472` и `CI Smoke #376`; статус теперь не привязывает себя к SHA документационного коммита.
 30. Усилена граница file exchange: `job_id` больше не может содержать `/`, `\\` или NUL и использоваться для выхода из exchange subdirectory; добавлен regression coverage.
-31. Исправлена конкурентная запись exchange JSON: общий фиксированный временный файл заменён на уникальный temp file per writer с fsync перед atomic replace.
-32. Добавлен regression test на конкурентных writers одного exchange record.
+31. Устранена конкуренция за общий `.tmp` файл при записи exchange JSON: каждый writer теперь использует уникальный временный файл и fsync перед replace.
+32. Добавлен regression test на конкурентные writers одного exchange record.
+33. Добавлена regression-проверка stale request после lease reclaim: старый request уходит в quarantine, после чего job может быть повторно dispatch-нута с новым lease.
 
 ## CI
 
@@ -91,7 +92,7 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - `CI Smoke #376` — **success**; прошли repository validation и `Exercise Oracle-local worker`.
 - Оба run завершились со статусом `completed / success`.
 
-После runtime-hardening commits `8ca5c820b8829e38dca67a6d7ae2cf53b6d60241`, `e6ef51e3074592c109ab47526612dff58b8ae2b1` и `8d4c896947b539d556e2034f3ab930f8cb0d8f2b` новые push-triggered Validate/CI Smoke результаты ещё не подтверждены этим аудитом. До их завершения предыдущие успешные runs остаются последним подтверждённым CI baseline. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
+После runtime-hardening commits новые push-triggered Validate/CI Smoke результаты ещё не подтверждены этим аудитом. До их завершения предыдущие успешные runs остаются последним подтверждённым CI baseline. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
