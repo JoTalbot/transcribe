@@ -16,7 +16,7 @@ for import_root in (SRC_ROOT, PROJECT_ROOT):
         sys.path.insert(0, str(import_root))
 
 from transcribe_intelligence.artifact_resolver import ArtifactResolver
-from transcribe_intelligence.artifacts import ArtifactManifest, write_immutable_text
+from transcribe_intelligence.artifacts import ArtifactManifest, sha256_file, write_immutable_text
 
 
 def _package_version(name: str) -> str | None:
@@ -100,7 +100,15 @@ def collect_runtime(root: Path) -> dict[str, object]:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 raise TypeError("metrics payload must be an object")
-            metrics.append({"path": str(path), "verified": True, "metrics": payload})
+            metrics.append(
+                {
+                    "path": str(path),
+                    "size_bytes": path.stat().st_size,
+                    "sha256": sha256_file(path),
+                    "verified": True,
+                    "metrics": payload,
+                }
+            )
         except json.JSONDecodeError as exc:
             metrics.append({"path": str(path), "verified": False, "error": f"JSON decode error: {exc}"})
         except (OSError, TypeError) as exc:
