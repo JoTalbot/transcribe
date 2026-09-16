@@ -6,7 +6,7 @@ from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
 from transcribe_intelligence.repository import InMemoryRepository, Recording
 
 
-def test_dispatch_quarantines_malformed_request_and_retries_job(tmp_path: Path):
+def test_dispatch_replaces_malformed_request_and_retries_job(tmp_path: Path):
     repository = InMemoryRepository()
     recording_id = "rec-malformed-request"
     repository.put_recording(Recording(recording_id, "/audio/input.wav"))
@@ -22,10 +22,11 @@ def test_dispatch_quarantines_malformed_request_and_retries_job(tmp_path: Path):
 
     assert [item.job_id for item in dispatches] == [job_id]
     assert repository.get_job(job_id).status == "running"
-    assert not request.exists()
-    quarantined = exchange.results / "quarantine" / request.name
-    assert quarantined.exists()
-    assert "malformed exchange request" in quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
+    assert request.exists()
+    replacement = exchange.get_request(job_id)
+    assert replacement.job_id == job_id
+    assert replacement.recording_id == recording_id
+    assert replacement.stage == "ingest"
 
 
 def test_dispatch_quarantines_malformed_processing_claim_and_retries_job(tmp_path: Path):
