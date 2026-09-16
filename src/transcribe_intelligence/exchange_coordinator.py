@@ -57,8 +57,19 @@ class ExchangeCoordinator:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
             return True
         current = self.repository.get_job(job_id)
-        if current is None or current.status != "running":
+        if current is None:
             self.quarantine_result(processing, "orphaned processing marker after lease recovery")
+            return False
+        if current.status != "running":
+            self.quarantine_result(processing, "orphaned processing marker after lease recovery")
+            return False
+        if (
+            marker.recording_id != current.recording_id
+            or marker.stage != current.stage
+            or marker.worker != current.worker
+            or marker.lease_id != current.lease_id
+        ):
+            self.quarantine_result(processing, "stale processing marker after lease change")
             return False
         return True
 
