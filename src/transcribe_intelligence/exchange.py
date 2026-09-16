@@ -55,11 +55,11 @@ def _read_json(path: Path) -> dict[str, object]:
 
 
 class FileExchange:
-    """Simple Drive-compatible contract using atomic JSON files."""
+    """Drive-compatible exchange contract using atomic JSON files."""
 
     def __init__(self, root: Path):
         self.root = root.expanduser().resolve()
-        self.requests = self.root / "jobs"
+        self.requests = self.root / "requests"
         self.results = self.root / "results"
 
     def put_request(self, request: JobEnvelope) -> Path:
