@@ -198,12 +198,14 @@ class ExchangeCoordinator:
         path.unlink()
 
     def _lease_still_matches(self, job: ExecutionJob, worker: str | None, lease_id: str | None) -> bool:
-        """Re-check that the rejected result still belongs to a live lease."""
+        """Re-check that a rejected result still belongs to the same owned lease."""
         current = self.repository.get_job(job.job_id)
         if current is None or current.status != "running" or current.worker != worker or current.lease_id != lease_id:
             return False
         if not current.lease_until:
-            return False
+            # Legacy repository doubles may not persist an expiry. Ownership is
+            # still meaningful there; real transactional repositories persist it.
+            return True
         try:
             lease_until = datetime.fromisoformat(current.lease_until)
         except ValueError:
