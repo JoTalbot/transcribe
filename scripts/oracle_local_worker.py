@@ -24,6 +24,8 @@ def _claim_local(exchange: FileExchange, job_id: str) -> Path | None:
     if request.stage not in LOCAL_STAGES:
         return None
     target = processing / source.name
+    if target.exists():
+        raise ExchangeError(f"processing claim already exists for {job_id}")
     try:
         source.replace(target)
     except FileNotFoundError:
