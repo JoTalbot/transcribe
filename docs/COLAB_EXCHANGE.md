@@ -11,6 +11,7 @@ transcribe/exchange/
   results/<job_id>.json
   results/quarantine/<job_id>.json
   artifacts/<recording_id>/...
+  artifacts/metrics/worker-metrics-<run>.json
 ```
 
 A request contains `job_id`, `recording_id`, `stage`, `worker`, `lease_id`, and dependency artifact IDs when the stage has prerequisites. `input_artifact_id` remains the first dependency for backward compatibility.
@@ -30,6 +31,7 @@ python scripts/colab_exchange_worker.py \
   --root /content/drive/MyDrive/transcribe/exchange \
   --input /content/drive/MyDrive/transcribe/input \
   --output /content/drive/MyDrive/transcribe/exchange/artifacts \
+  --metrics-output /content/drive/MyDrive/transcribe/exchange/artifacts/metrics \
   --once
 ```
 
@@ -40,6 +42,7 @@ python scripts/colab_exchange_worker.py \
   --root /content/drive/MyDrive/transcribe/exchange \
   --input /content/drive/MyDrive/transcribe/input \
   --output /content/drive/MyDrive/transcribe/exchange/artifacts \
+  --metrics-output /content/drive/MyDrive/transcribe/exchange/artifacts/metrics \
   --poll 30
 ```
 
@@ -49,9 +52,15 @@ The production worker requires a CUDA GPU and the Colab Secret `HUGGINGFACE_TOKE
 
 The repository's notebook `notebooks/transcribe_pipeline.ipynb` is the canonical Colab setup and exchange entrypoint. CI validates that the notebook references this worker, canonical Drive paths, and the three production model families.
 
+## Runtime evidence
+
+When `--metrics-output` is supplied, the worker writes an immutable `worker-metrics-<run>.json` snapshot after the run. It records model-load timings for Whisper, diarization, and ECAPA, total wall-clock time, maximum process RSS, and per-job stage duration/status. The snapshot contains no authentication secrets.
+
+This evidence is deliberately separate from artifact manifests. It can be collected after the run and retained with the execution logs. In continuous mode, each worker process writes a unique snapshot instead of replacing an earlier run.
+
 ## Evidence collection
 
-After a physical run, collect a machine-readable snapshot of the Colab environment and every exchange artifact. The collector records package versions, CUDA/GPU information, artifact IDs, model versions, sizes, SHA-256 values, and checksum verification status. It does not read or print authentication secrets.
+After a physical run, collect a machine-readable snapshot of the Colab environment, runtime measurements, and every exchange artifact. The collector records package versions, CUDA/GPU information, worker timing/memory metrics, artifact IDs, model versions, sizes, SHA-256 values, and checksum verification status. It does not read or print authentication secrets.
 
 ```bash
 python scripts/colab_gpu_evidence.py \
@@ -74,6 +83,6 @@ Use `--json` for machine-readable evidence. A non-zero exit status means the aud
 
 ## Dry-run versus physical E2E
 
-The repository contains deterministic transport and cross-worker dry-run tests, but those do not constitute proof that real GPU inference completed in Google Colab. Physical E2E acceptance still requires an actual Oracle → Google Drive exchange → Colab CUDA inference → artifact publication → Oracle result application run, with measured timing, RAM/VRAM usage, artifact sizes, and repeat/recovery checks.
+The repository contains deterministic transport and cross-worker dry-run tests, but those do not constitute proof that real GPU inference completed in Google Colab. Physical E2E acceptance still requires an actual Oracle → Google Drive exchange → Colab CUDA inference → artifact publication → Oracle result application run, with measured model-load/stage timing, RAM/VRAM usage, artifact sizes, and repeat/recovery checks.
 
 Authentication, browser sessions, CAPTCHA handling, and Google credentials are outside this exchange module. No credentials belong in the repository.
