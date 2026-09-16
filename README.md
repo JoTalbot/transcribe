@@ -1,6 +1,6 @@
 # Transcribe: Whisper large-v3 + speaker diarization
 
-Automated audio transcription with speaker diarization. Heavy inference runs in free Google Colab GPU; GitHub Actions validates the project and optional Drive sync reports the queue.
+Automated audio transcription with speaker diarization. Heavy inference runs in free Google Colab GPU; GitHub Actions validates the project and the Oracle scheduler coordinates durable PostgreSQL jobs through a Drive-compatible exchange.
 
 ## Architecture
 
@@ -15,30 +15,47 @@ Oracle / orchestrator
     |
     +--> PostgreSQL canonical state + stable jobs
     |
-    +--> oracle_worker.py ---> Drive/exchange/jobs/*.json
+    +--> oracle_worker.py ---> Drive/exchange/requests/*.json
                                |
                                v
                         Colab GPU worker
-                        Whisper + Pyannote
+                        Whisper + Pyannote + ECAPA
                                |
-                               v
-                        output + manifests
+                               +--> exchange/processing/*.json
+                               |
+                               +--> exchange/artifacts/*
                                |
                                v
                         exchange/results/*.json
+                               |
+                               v
+                        Oracle result reconciliation
 ```
 
-The manifest path is the source of truth for locating audio. A `recording_id` is derived from the relative path, so the worker must not assume that the ID is the original filename. Exchange envelopes therefore carry the exact `input_path`.
+The manifest path is the source of truth for locating audio. A `recording_id` is derived from the relative path, so the worker must not assume that the ID is the original filename. Exchange envelopes therefore carry the exact `input_path` when a stage has no artifact dependency.
 
-The orchestration layer keeps the logical stages resumable and idempotent. PostgreSQL is the canonical execution state; local JSON job state is not used by the production queue path. The current Colab inference adapter performs the GPU-heavy ASR/diarization operation; the broader 24-stage intelligence roadmap remains a target architecture rather than a claim that every stage is already implemented.
+The orchestration layer keeps the logical stages resumable and idempotent. PostgreSQL is the canonical execution state; local JSON exchange state is transport only and is never the production source of truth. The canonical Colab exchange worker performs GPU-heavy ASR/diarization and speaker-embedding work; the broader 24-stage intelligence roadmap remains a target architecture rather than a claim that every stage is already implemented.
+
+### Canonical exchange layout
+
+```text
+exchange/
+├── requests/       # atomic job envelopes published by the orchestrator
+├── processing/     # claimed requests while a Colab worker owns a lease
+├── results/        # atomic result envelopes awaiting PostgreSQL reconciliation
+├── artifacts/      # stage artifacts and manifests used by downstream stages
+└── results/quarantine/  # malformed, stale, foreign, or orphaned records
+```
+
+Requests and results are written atomically. PostgreSQL lease identity (`worker` + `lease_id`) is carried through the exchange and checked again before a result can change canonical state. This prevents a late worker from completing a job after its lease has been reclaimed.
 
 ### 5-minute setup
 
 1. Accept the model terms for `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` on Hugging Face.
 2. Create a Hugging Face access token with read access. In Colab open **Secrets**, create `HUGGINGFACE_TOKEN`, and allow notebook access.
-3. Put audio into `MyDrive/transcribe/input`. The notebook creates `output` and `state` automatically.
+3. Put a small test audio file into `MyDrive/transcribe/input`.
 4. Open `notebooks/transcribe_pipeline.ipynb` in Colab and use **Runtime -> Run all**.
-5. Results are written as `.txt`, `.json`, and `.srt` under `MyDrive/transcribe/output`.
+5. The notebook mounts `MyDrive/transcribe/exchange` and invokes the canonical `scripts/colab_exchange_worker.py`. Results are exchanged through `requests`, `processing`, `results`, and `artifacts`.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JoTalbot/transcribe/blob/main/notebooks/transcribe_pipeline.ipynb)
 
@@ -84,18 +101,13 @@ python scripts/oracle_worker.py \
 
 The daemon handles `SIGINT`/`SIGTERM` gracefully, logs transient cycle failures, continues with the normal interval, and does not keep a PostgreSQL connection open between cycles. This is intentional: a single temporary database or exchange failure must not kill the durable Oracle scheduler, while the error remains visible in the worker log.
 
-The Colab exchange worker watches `exchange/jobs`, claims requests into `processing`, runs GPU inference, writes `exchange/results`, and removes the processing marker after completion or failure.
+The canonical Colab exchange worker watches `exchange/requests`, atomically claims requests into `processing`, validates the persisted worker/lease identity, runs GPU inference, writes `exchange/results`, and removes the processing marker after completion or failure.
 
 The seeding command creates missing recordings and stable stage jobs in PostgreSQL and never overwrites an existing execution job. It also rejects a manifest path that conflicts with canonical database state. The dispatch command validates manifest paths against PostgreSQL and uses lease-aware scheduling, so repeated submission is safe.
 
 ## Outputs
 
-For `example.wav`, the pipeline produces:
-
-- `example.txt`: `[00:01:23 - SPEAKER_00]: text`
-- `example.json`: source metadata, diarization segments and transcript segments
-- `example.srt`: speaker-labelled subtitles
-- `state/processed.json`: resumable processing registry
+Stage artifacts are stored under the canonical exchange artifact root and are addressed by stable artifact IDs. The final transcript representation contains speaker-labelled text and machine-readable metadata; exact filenames depend on the stage and recording ID.
 
 ## Optional Drive sync
 
@@ -125,12 +137,17 @@ The runner opens the notebook and attempts to invoke **Run all** using resilient
 
 ```bash
 pip install -r requirements-dev.txt
-python -m compileall scripts
+python -m compileall scripts src tests
 python -m json.tool notebooks/transcribe_pipeline.ipynb >/dev/null
+python scripts/colab_exchange_worker.py --help
 ```
+
+CI additionally validates the canonical notebook exchange contract and all script entrypoints.
 
 ## Notes
 
 `faster-whisper` uses CTranslate2 and CUDA when available. Pyannote performs diarization separately; the notebook assigns each Whisper segment to the speaker with the greatest temporal overlap. This is intentionally simple, deterministic, and resumable. For highly overlapping speech, diarization-aware word-level alignment can be added later.
+
+The dry-run exchange test validates transport, atomic file exchange, lease identity, result reconciliation, quarantine behavior, and retry semantics without GPU models. It does **not** prove actual Whisper, Pyannote, CUDA, or Colab inference. A real Colab GPU run with a small non-production recording remains the production validation gate.
 
 Keep Colab sessions alive only through legitimate notebook/browser activity. The notebook includes a visible keep-alive snippet for users who choose to use it, but no method can guarantee a free Colab session indefinitely.
