@@ -28,7 +28,7 @@ python scripts/submit_exchange_jobs.py \
   --worker oracle-dry-run
 ```
 
-Ожидаемый результат: request появляется в `exchange/jobs/`, а PostgreSQL job получает `running`, `worker=oracle-dry-run` и непустой `lease_id`.
+Ожидаемый результат: request появляется в `exchange/requests/`, а PostgreSQL job получает `running`, `worker=oracle-dry-run` и непустой `lease_id`.
 
 ## 3. Colab-side protocol test
 
@@ -44,7 +44,7 @@ for request in exchange.list_requests():
     print(process_one(exchange, request.stem, dry_run_processor))
 ```
 
-После этого request должен исчезнуть из `jobs/` и `processing/`, а соответствующий JSON result появиться в `results/`.
+После этого request должен исчезнуть из `requests/` и `processing/`, а соответствующий JSON result появиться в `results/`.
 
 ## 4. Apply result
 
