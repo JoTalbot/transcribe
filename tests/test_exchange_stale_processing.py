@@ -57,3 +57,38 @@ def test_stale_processing_marker_is_quarantined_and_retry_is_redispatched(tmp_pa
     quarantined = exchange.results / "quarantine" / processing_file.name
     assert quarantined.exists()
     assert "orphaned processing marker" in quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
+
+
+def test_running_job_with_foreign_processing_lease_is_quarantined(tmp_path: Path):
+    repository = InMemoryRepository()
+    recording_id = "rec-foreign-processing"
+    job_id = stable_job_id(recording_id, "ingest")
+    repository.put_recording(Recording(recording_id, "/audio/input.wav"))
+    repository.put_job(
+        ExecutionJob(
+            job_id,
+            recording_id,
+            "ingest",
+            "running",
+            attempt=2,
+            worker="new-worker",
+            lease_id="lease-new",
+        )
+    )
+
+    exchange = FileExchange(tmp_path / "exchange")
+    processing = exchange.root / "processing"
+    processing.mkdir(parents=True)
+    processing_file = processing / f"{job_id}.json"
+    processing_file.write_text(
+        f'{{"job_id":"{job_id}","recording_id":"{recording_id}","stage":"ingest","worker":"old-worker","lease_id":"lease-old"}}\n',
+        encoding="utf-8",
+    )
+
+    coordinator = ExchangeCoordinator(repository, exchange)
+
+    assert coordinator._exchange_has_job(job_id) is False
+    assert not processing_file.exists()
+    quarantined = exchange.results / "quarantine" / processing_file.name
+    assert quarantined.exists()
+    assert "stale processing marker after lease change" in quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
