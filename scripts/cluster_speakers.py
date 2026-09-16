@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from transcribe_intelligence.artifacts import build_manifest, write_manifest
+from transcribe_intelligence.artifacts import build_manifest, write_immutable_text, write_manifest
 from transcribe_intelligence.embedding_store import EmbeddingStore, cluster_payload
 from transcribe_intelligence.speaker_embeddings import cluster_embeddings
 
@@ -35,7 +35,8 @@ def main() -> int:
     embeddings = load_embeddings([p.expanduser().resolve() for p in args.embeddings])
     clusters = cluster_embeddings(embeddings, threshold=args.threshold)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(cluster_payload(clusters), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    payload = json.dumps(cluster_payload(clusters), ensure_ascii=False, indent=2) + "\n"
+    write_immutable_text(args.output, payload)
     manifest = build_manifest(
         args.output,
         artifact_id="voice-clusters:json",
