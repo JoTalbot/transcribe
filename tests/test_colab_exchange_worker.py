@@ -65,3 +65,23 @@ def test_process_one_releases_processing_marker_when_result_publish_fails(tmp_pa
     exchange.put_result = original_put_result  # type: ignore[method-assign]
     assert not (exchange.requests / "j4.json").exists()
     assert not (exchange.root / "processing" / "j4.json").exists()
+
+
+def test_process_one_never_overwrites_existing_processing_claim(tmp_path: Path):
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_request(JobEnvelope("j5", "r5", "asr", worker="worker-a", lease_id="lease-new"))
+    processing = exchange.root / "processing"
+    processing.mkdir(parents=True, exist_ok=True)
+    existing = JobEnvelope("j5", "r5", "asr", worker="worker-old", lease_id="lease-old")
+    exchange.put_request(existing)
+    (processing / "j5.json").write_text(
+        '{"job_id":"j5","recording_id":"r5","stage":"asr","worker":"worker-old","lease_id":"lease-old"}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ExchangeError, match="processing claim already exists"):
+        process_one(exchange, "j5", dry_run_processor)
+
+    assert (exchange.requests / "j5.json").exists()
+    assert (processing / "j5.json").read_text(encoding="utf-8").find("lease-old") >= 0
+    assert not (exchange.results / "j5.json").exists()
