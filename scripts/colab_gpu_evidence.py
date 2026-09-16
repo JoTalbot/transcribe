@@ -93,13 +93,27 @@ def collect_artifacts(root: Path) -> list[dict[str, object]]:
     return artifacts
 
 
+def _validate_worker_metrics(payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise TypeError("metrics payload must be an object")
+    if payload.get("schema_version") != 1:
+        raise ValueError("unsupported worker metrics schema_version")
+    required = {"started_at_unix", "finished_at_unix", "wall_clock_seconds", "max_rss_bytes", "model_load_seconds", "jobs"}
+    missing = sorted(required.difference(payload))
+    if missing:
+        raise ValueError(f"worker metrics missing required fields: {', '.join(missing)}")
+    if not isinstance(payload["model_load_seconds"], dict):
+        raise TypeError("model_load_seconds must be an object")
+    if not isinstance(payload["jobs"], list):
+        raise TypeError("jobs must be an array")
+    return payload
+
+
 def collect_runtime(root: Path) -> dict[str, object]:
     metrics = []
     for path in sorted(root.rglob("worker-metrics-*.json")):
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                raise TypeError("metrics payload must be an object")
+            payload = _validate_worker_metrics(json.loads(path.read_text(encoding="utf-8")))
             metrics.append(
                 {
                     "path": str(path),
@@ -111,7 +125,7 @@ def collect_runtime(root: Path) -> dict[str, object]:
             )
         except json.JSONDecodeError as exc:
             metrics.append({"path": str(path), "verified": False, "error": f"JSON decode error in {path.name}: {exc}"})
-        except (OSError, TypeError) as exc:
+        except (OSError, TypeError, ValueError) as exc:
             metrics.append({"path": str(path), "verified": False, "error": str(exc)})
     return {"worker_metrics": metrics}
 
