@@ -4,7 +4,7 @@
 
 Текущий baseline `main`: `e3603ac60106295312b5176c80a5a8828a978e64`.
 
-Repository-side validation подтверждена: `Validate #546` на baseline завершился успешно. Colab notebook теперь устанавливает GPU-зависимости до импорта `torch`.
+Repository-side validation подтверждена: `Validate #546` на baseline завершился успешно. Colab notebook устанавливает GPU-зависимости до импорта `torch`.
 
 ## Остаётся физически подтвердить
 
