@@ -21,11 +21,17 @@ class ScheduleReport:
 class Scheduler:
     """Consume results, recover stale work, and dispatch ready recordings."""
 
-    def __init__(self, repository: Repository, exchange: FileExchange, policy: RecoveryPolicy | None = None):
+    def __init__(
+        self,
+        repository: Repository,
+        exchange: FileExchange,
+        policy: RecoveryPolicy | None = None,
+        verify_artifacts: bool = False,
+    ):
         self.repository = repository
         self.exchange = exchange
         self.policy = policy or RecoveryPolicy()
-        self.coordinator = ExchangeCoordinator(repository, exchange)
+        self.coordinator = ExchangeCoordinator(repository, exchange, verify_artifacts=verify_artifacts)
 
     def recover(self, recording_ids: Iterable[str], now=None) -> tuple[int, int]:
         """Recover stale work through the DB lease boundary when available.
