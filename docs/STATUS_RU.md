@@ -37,6 +37,7 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Colab transport сохраняет `worker + lease_id` от execution job до file-exchange request, чтобы результат нельзя было принять за другой lease.
 - Artifact verification проверяет существование, размер, SHA-256, exchange-root confinement, recording binding и stage binding.
 - Processing marker со старым worker/lease после reclaim больше не блокирует повторный dispatch и уходит в quarantine.
+- Stale request со старым worker/lease после reclaim также уходит в quarantine и не блокирует новый dispatch.
 - Проверен сценарий foreign processing lease для уже running job.
 - Notebook CI проверяет наличие canonical Colab exchange worker, Drive paths и production model families.
 - Drive sync сверяет обработанное состояние по reconciliation между Drive records и legacy local paths.
@@ -44,7 +45,8 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Добавлены regression tests для Drive processed-state reconciliation, повторной загрузки изменённого файла и пропуска неизменённого файла.
 - Добавлен auditable Colab GPU evidence collector, который фиксирует GPU/CUDA/package metadata и проверяет artifact manifests, размер и SHA-256 без вывода секретов.
 - Для физического GPU E2E добавлен отдельный evidence template с timing, RAM/VRAM, model-load, artifact, repeat и interruption/reclaim полями.
-- File exchange теперь отвергает `job_id` с разделителями путей и NUL-байтом, чтобы exchange filename не мог выйти за пределы `requests/` или `results/`; защита покрыта regression test.
+- File exchange отвергает `job_id` с разделителями путей и NUL-байтом, чтобы exchange filename не мог выйти за пределы `requests/` или `results/`; защита покрыта regression test.
+- Atomic JSON writer больше не использует общий фиксированный `.tmp` путь: конкурентные writers получают независимые временные файлы, содержимое flush/fsync-ится перед replace; добавлен regression test конкурентной записи.
 
 ## Последние исправления
 
@@ -78,6 +80,8 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 28. Подтверждены функциональные `Validate #471` и `CI Smoke #375` на runtime baseline после синхронизации evidence tooling.
 29. Подтверждены более новые функциональные `Validate #472` и `CI Smoke #376`; статус теперь не привязывает себя к SHA документационного коммита.
 30. Усилена граница file exchange: `job_id` больше не может содержать `/`, `\\` или NUL и использоваться для выхода из exchange subdirectory; добавлен regression coverage.
+31. Исправлена конкурентная запись exchange JSON: общий фиксированный временный файл заменён на уникальный temp file per writer с fsync перед atomic replace.
+32. Добавлен regression test на конкурентных writers одного exchange record.
 
 ## CI
 
@@ -87,7 +91,7 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - `CI Smoke #376` — **success**; прошли repository validation и `Exercise Oracle-local worker`.
 - Оба run завершились со статусом `completed / success`.
 
-После runtime-hardening commit `8ca5c820b8829e38dca67a6d7ae2cf53b6d60241` новые push-triggered Validate/CI Smoke результаты ещё не подтверждены этим аудитом. До их завершения предыдущие успешные runs остаются последним подтверждённым CI baseline. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
+После runtime-hardening commits `8ca5c820b8829e38dca67a6d7ae2cf53b6d60241`, `e6ef51e3074592c109ab47526612dff58b8ae2b1` и `8d4c896947b539d556e2034f3ab930f8cb0d8f2b` новые push-triggered Validate/CI Smoke результаты ещё не подтверждены этим аудитом. До их завершения предыдущие успешные runs остаются последним подтверждённым CI baseline. CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
 
