@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from scripts.colab_gpu_evidence import collect, collect_artifacts
 from transcribe_intelligence.artifacts import build_manifest, write_manifest
 
@@ -59,3 +61,21 @@ def test_collect_has_stable_schema_without_gpu_requirement(tmp_path: Path):
     assert "gpu" in evidence
     assert "packages" in evidence
     assert evidence["gpu"]["cuda_available"] is False or isinstance(evidence["gpu"]["cuda_available"], bool)
+
+
+def test_evidence_output_is_immutable(tmp_path: Path):
+    output = tmp_path / "evidence.json"
+    output.write_text('{"existing":true}\n', encoding="utf-8")
+
+    from scripts.colab_gpu_evidence import main
+    import sys
+
+    original_argv = sys.argv
+    sys.argv = ["colab_gpu_evidence", "--root", str(tmp_path), "--output", str(output)]
+    try:
+        with pytest.raises(ValueError, match="artifact already exists with different content"):
+            main()
+    finally:
+        sys.argv = original_argv
+
+    assert output.read_text(encoding="utf-8") == '{"existing":true}\n'
