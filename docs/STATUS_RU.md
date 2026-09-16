@@ -93,14 +93,16 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 36. Добавлена отдельная read-only проверка artifact store через `scripts/audit_artifacts.py` и regression coverage для duplicate/missing/orphan/checksum/path-boundary случаев.
 37. Исправлена проверка artifact audit для относительных путей вне root: `../outside/...` теперь корректно помечается как `path_outside_root`.
 38. Evidence collector переведён на immutable output publication и добавлен regression test, который подтверждает отказ от перезаписи существующего evidence snapshot.
+39. Синхронизирован `docs/COLAB_GPU_E2E_CHECKLIST_RU.md` с фактическим evidence collector, включая immutable snapshots и явное разделение автоматически собираемых и ручных метрик.
+40. Синхронизирован этот статус с текущим main baseline и последними успешными CI runs после обновления Colab E2E checklist.
 
 ## CI
 
-Последнее подтверждённое состояние после immutable evidence hardening:
+Последнее подтверждённое состояние для текущего `main` baseline:
 
-- `Validate #524` для commit `5d4d465b124618ef85b07666711ccce506bdb9e8` — **success**; run `35124880121`, job `104891347352`. Прошли checkout@v7, setup-python@v7, системные зависимости, validation tools, compile, notebook JSON/structure, conversation schema, lint, tests, entrypoints и repository structure.
-- `CI Smoke #429` для того же commit — **success**; run `35124880233`, job `104891352758`. Прошли repository validation и `Exercise Oracle-local worker`.
-- Эти runs являются актуальным подтверждённым CI baseline для main после hardening evidence output.
+- `Validate #526` для commit `aea9db93ab4da6f1c5f4343baf80e8609161e52b` — **success**; run `35125962070`. Запуск завершён успешно после обновления Colab E2E checklist. citeturn944file0
+- `CI Smoke #431` для того же commit — **success**; run `35125961782`. Запуск завершён успешно. citeturn945file0
+- Текущий `main` baseline: `aea9db93ab4da6f1c5f4343baf80e8609161e52b`.
 - CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
