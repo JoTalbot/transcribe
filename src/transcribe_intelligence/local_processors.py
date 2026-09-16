@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .artifact_resolver import ArtifactResolutionError, ArtifactResolver
-from .artifacts import ArtifactManifest, build_manifest, write_manifest
+from .artifacts import ArtifactManifest, build_manifest, sha256_file, write_manifest
 from .exchange import ExchangeError, JobEnvelope, ResultEnvelope
 
 
@@ -57,7 +57,10 @@ class LocalAudioProcessor:
         target_dir = self._recording_dir(request.recording_id) / "ingest"
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / f"{request.recording_id}.source{source.suffix.lower()}"
-        if not target.exists():
+        if target.exists():
+            if target.stat().st_size != source.stat().st_size or sha256_file(target) != sha256_file(source):
+                raise ValueError(f"artifact manifest already exists with different content: {target}")
+        else:
             temporary = target.with_suffix(target.suffix + ".tmp")
             shutil.copyfile(source, temporary)
             try:
