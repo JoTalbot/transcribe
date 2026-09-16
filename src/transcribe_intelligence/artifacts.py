@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import tempfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +71,7 @@ def _manifest_json(manifest: ArtifactManifest) -> str:
 
 
 def write_manifest(manifest: ArtifactManifest, path: Path) -> None:
-    """Atomically persist an immutable JSON artifact manifest."""
+    """Create a manifest exclusively; identical repeats are idempotent and changes are rejected."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = _manifest_json(manifest)
     try:
