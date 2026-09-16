@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import json
 from pathlib import Path
 import sys
@@ -14,16 +13,6 @@ for root in (PROJECT_ROOT, SRC_ROOT):
         sys.path.insert(0, str(root))
 
 from transcribe_intelligence.artifacts import ArtifactManifest, verify_manifest
-
-
-ISSUE_TYPES = {
-    "duplicate_artifact_id",
-    "invalid_manifest",
-    "missing_payload",
-    "checksum_mismatch",
-    "orphan_payload",
-    "path_outside_root",
-}
 
 
 def _relative(path: Path, root: Path) -> str:
