@@ -100,9 +100,10 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 
 Последнее подтверждённое состояние для текущего `main` baseline:
 
-- `Validate #526` для commit `aea9db93ab4da6f1c5f4343baf80e8609161e52b` — **success**; run `35125962070`. Запуск завершён успешно после обновления Colab E2E checklist. citeturn944file0
-- `CI Smoke #431` для того же commit — **success**; run `35125961782`. Запуск завершён успешно. citeturn945file0
-- Текущий `main` baseline: `aea9db93ab4da6f1c5f4343baf80e8609161e52b`.
+- `Validate #526` для commit `aea9db93ab4da6f1c5f4343baf80e8609161e52b` — **success**; run `35125962070`. Запуск завершён успешно после обновления Colab E2E checklist.
+- `CI Smoke #431` для того же commit — **success**; run `35125961782`. Запуск завершён успешно.
+- Текущий `main` baseline на момент CI: `aea9db93ab4da6f1c5f4343baf80e8609161e52b`.
+- Этот status-sync commit обновляет только документацию; он сам должен пройти стандартные CI проверки.
 - CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
