@@ -65,12 +65,12 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 
 ## CI
 
-Текущий `main` commit: `f920b778d4a51237ff871aedd61ef51b6f98f807`.
+Текущий `main` commit: `963e6b2f52d3bc3fddd4cbaceb937d89e3033838`.
 
 Для этого commit фактически прошли GitHub Actions:
 
-- `Validate` run `#452` — **success**.
-- `CI Smoke` run `#356` — **success**.
+- `Validate` run `#453` — **success**.
+- `CI Smoke` run `#357` — **success**.
 - `Auto Retry Failed CI` не потребовался для исправления ошибки.
 
 `Validate` прошёл compile, notebook JSON/structure, conversation schema, lint, PostgreSQL-backed tests, script entrypoints и repository validation. `CI Smoke` прошёл repository validation и Oracle-local worker smoke.
