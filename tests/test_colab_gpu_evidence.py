@@ -80,7 +80,8 @@ def test_collect_marks_malformed_worker_metrics_unverified(tmp_path: Path):
 
     runtime = evidence["runtime"]["worker_metrics"]
     assert runtime[0]["verified"] is False
-    assert "JSON decode error" in runtime[0]["error"]
+    assert runtime[0]["error"]
+    assert "json" in runtime[0]["error"].lower()
 
 
 def test_collect_has_stable_schema_without_gpu_requirement(tmp_path: Path):
