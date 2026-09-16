@@ -54,6 +54,14 @@ def _read_json(path: Path) -> dict[str, object]:
     return payload
 
 
+def _validate_job_id(job_id: str) -> None:
+    """Reject IDs that could escape an exchange subdirectory as path components."""
+    if not job_id.strip():
+        raise ValueError("job_id must not be empty")
+    if Path(job_id).name != job_id or job_id in {".", ".."}:
+        raise ValueError("job_id must be a single filesystem-safe path component")
+
+
 class FileExchange:
     """Drive-compatible exchange contract using atomic JSON files."""
 
@@ -62,15 +70,24 @@ class FileExchange:
         self.requests = self.root / "requests"
         self.results = self.root / "results"
 
+    def _request_path(self, job_id: str) -> Path:
+        _validate_job_id(job_id)
+        return self.requests / f"{job_id}.json"
+
+    def _result_path(self, job_id: str) -> Path:
+        _validate_job_id(job_id)
+        return self.results / f"{job_id}.json"
+
     def put_request(self, request: JobEnvelope) -> Path:
-        if not request.job_id.strip() or not request.recording_id.strip() or not request.stage.strip():
-            raise ValueError("job_id, recording_id and stage must not be empty")
-        path = self.requests / f"{request.job_id}.json"
+        _validate_job_id(request.job_id)
+        if not request.recording_id.strip() or not request.stage.strip():
+            raise ValueError("recording_id and stage must not be empty")
+        path = self._request_path(request.job_id)
         _write_json_atomic(path, asdict(request))
         return path
 
     def get_request(self, job_id: str) -> JobEnvelope:
-        payload = _read_json(self.requests / f"{job_id}.json")
+        payload = _read_json(self._request_path(job_id))
         try:
             request = JobEnvelope(**payload)
         except TypeError as exc:
@@ -80,16 +97,17 @@ class FileExchange:
         return request
 
     def put_result(self, result: ResultEnvelope) -> Path:
-        if not result.job_id.strip() or not result.status.strip():
-            raise ValueError("job_id and status must not be empty")
+        _validate_job_id(result.job_id)
+        if not result.status.strip():
+            raise ValueError("status must not be empty")
         if result.status == "completed" and not result.artifact_id:
             raise ValueError("completed result requires artifact_id")
-        path = self.results / f"{result.job_id}.json"
+        path = self._result_path(result.job_id)
         _write_json_atomic(path, asdict(result))
         return path
 
     def get_result(self, job_id: str) -> ResultEnvelope:
-        payload = _read_json(self.results / f"{job_id}.json")
+        payload = _read_json(self._result_path(job_id))
         try:
             result = ResultEnvelope(**payload)
         except TypeError as exc:
