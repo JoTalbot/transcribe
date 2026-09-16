@@ -7,7 +7,13 @@ from transcribe_intelligence.job_store import ExecutionJob, stable_job_id
 from transcribe_intelligence.repository import InMemoryRepository, Recording
 
 
-def _write_artifact(exchange: FileExchange, recording_id: str, artifact_id: str, content: str = "payload\n") -> Path:
+def _write_artifact(
+    exchange: FileExchange,
+    recording_id: str,
+    artifact_id: str,
+    content: str = "payload\n",
+    stage: str = "ingest",
+) -> Path:
     artifact_dir = exchange.root / "artifacts" / recording_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact = artifact_dir / "artifact.json"
@@ -16,7 +22,7 @@ def _write_artifact(exchange: FileExchange, recording_id: str, artifact_id: str,
         artifact,
         artifact_id=artifact_id,
         recording_id=recording_id,
-        stage="ingest",
+        stage=stage,
         kind="json",
         producer="test",
     )
@@ -24,14 +30,14 @@ def _write_artifact(exchange: FileExchange, recording_id: str, artifact_id: str,
     return artifact
 
 
-def _running_job(repository: InMemoryRepository, recording_id: str) -> str:
+def _running_job(repository: InMemoryRepository, recording_id: str, stage: str = "ingest") -> str:
     repository.put_recording(Recording(recording_id, f"/audio/{recording_id}.wav"))
-    job_id = stable_job_id(recording_id, "ingest")
+    job_id = stable_job_id(recording_id, stage)
     repository.put_job(
         ExecutionJob(
             job_id,
             recording_id,
-            "ingest",
+            stage,
             "running",
             attempt=1,
             worker="oracle",
@@ -84,6 +90,48 @@ def test_verified_completed_result_rejects_tampered_artifact(tmp_path: Path):
     quarantined = exchange.results / "quarantine" / result_path.name
     assert quarantined.exists()
     assert "invalid completed artifact" in quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
+
+
+def test_verified_completed_result_rejects_artifact_from_another_recording(tmp_path: Path):
+    repository = InMemoryRepository()
+    job_id = _running_job(repository, "rec-target")
+    exchange = FileExchange(tmp_path / "exchange")
+    artifact_id = "rec-source:ingest:json"
+    _write_artifact(exchange, "rec-source", artifact_id)
+    result_path = exchange.put_result(
+        ResultEnvelope(job_id, "completed", artifact_id=artifact_id, worker="oracle", lease_id="lease-1")
+    )
+
+    changed = ExchangeCoordinator(repository, exchange, verify_artifacts=True).apply_results()
+
+    assert changed == 0
+    assert repository.get_job(job_id).status == "running"
+    assert not result_path.exists()
+    quarantined = exchange.results / "quarantine" / result_path.name
+    assert quarantined.exists()
+    error = quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
+    assert "recording_id mismatch" in error
+
+
+def test_verified_completed_result_rejects_artifact_from_another_stage(tmp_path: Path):
+    repository = InMemoryRepository()
+    job_id = _running_job(repository, "rec-stage", stage="normalize")
+    exchange = FileExchange(tmp_path / "exchange")
+    artifact_id = "rec-stage:ingest:json"
+    _write_artifact(exchange, "rec-stage", artifact_id, stage="ingest")
+    result_path = exchange.put_result(
+        ResultEnvelope(job_id, "completed", artifact_id=artifact_id, worker="oracle", lease_id="lease-1")
+    )
+
+    changed = ExchangeCoordinator(repository, exchange, verify_artifacts=True).apply_results()
+
+    assert changed == 0
+    assert repository.get_job(job_id).status == "running"
+    assert not result_path.exists()
+    quarantined = exchange.results / "quarantine" / result_path.name
+    assert quarantined.exists()
+    error = quarantined.with_suffix(quarantined.suffix + ".error").read_text(encoding="utf-8")
+    assert "stage mismatch" in error
 
 
 def test_verified_completed_result_accepts_valid_manifest_and_artifact(tmp_path: Path):
