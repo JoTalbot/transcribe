@@ -38,3 +38,20 @@ def test_lease_identity_round_trip_is_optional_for_legacy_exchange_records(tmp_p
     result = ResultEnvelope("r1:asr", "failed", error="legacy worker")
     exchange.put_result(result)
     assert exchange.get_result("r1:asr") == result
+
+
+@pytest.mark.parametrize("job_id", ["../escape", "nested/job", "nested\\job", ".", ".."])
+def test_job_id_cannot_escape_exchange_directory(tmp_path: Path, job_id: str) -> None:
+    exchange = FileExchange(tmp_path / "exchange")
+
+    with pytest.raises(ValueError, match="single filesystem-safe path component"):
+        exchange.put_request(JobEnvelope(job_id, "r1", "asr"))
+
+    with pytest.raises(ValueError, match="single filesystem-safe path component"):
+        exchange.get_request(job_id)
+
+    with pytest.raises(ValueError, match="single filesystem-safe path component"):
+        exchange.put_result(ResultEnvelope(job_id, "failed", error="invalid id"))
+
+    with pytest.raises(ValueError, match="single filesystem-safe path component"):
+        exchange.get_result(job_id)
