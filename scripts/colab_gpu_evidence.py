@@ -110,7 +110,7 @@ def collect_runtime(root: Path) -> dict[str, object]:
                 }
             )
         except json.JSONDecodeError as exc:
-            metrics.append({"path": str(path), "verified": False, "error": f"JSON decode error: {exc}"})
+            metrics.append({"path": str(path), "verified": False, "error": f"JSON decode error in {path.name}: {exc}"})
         except (OSError, TypeError) as exc:
             metrics.append({"path": str(path), "verified": False, "error": str(exc)})
     return {"worker_metrics": metrics}
