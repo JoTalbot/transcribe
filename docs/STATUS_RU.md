@@ -53,18 +53,15 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 ## CI
 
-Последнее подтверждённое состояние текущего `main`:
+Последнее подтверждённое состояние runtime-кода:
 
-- `main` = `7f7326493d23a112ef66fc61a612288cb8dfce7b`.
-- `Validate #538` — **success**, run `35136116518`, job `104928796127`.
-- `CI Smoke #443` — **success**, run `35136116746`, job `104928797160`.
-- Validate на предыдущем runtime SHA выполнил compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks.
+- `7f7326493d23a112ef66fc61a612288cb8dfce7b` — `Validate #538`, **success**, run `35136116518`, job `104928796127`.
+- `7f7326493d23a112ef66fc61a612288cb8dfce7b` — `CI Smoke #443`, **success**, run `35136116746`, job `104928796160`.
+- Validate выполнил compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks.
 - Validate подтвердил **222 passed**.
 - Smoke подтвердил Oracle-local worker integration: **5 passed**.
-- Retry workflow checks skipped, поскольку основной CI не завершался ошибкой.
-- Workflow artifacts не требуются для текущей валидации; Validate/Smoke не публикуют отдельный artifact bundle.
 
-Документационное обновление этого status-файла находится в текущем `main`; после него требуется отдельное прохождение CI, поскольку этот commit был создан уже после указанных выше runtime checks.
+Текущий `main` содержит последующее документационное обновление статуса `481fb09c6ab71ac05a445dd283b8ab51bcde8b65`. Доступный commit-specific endpoint не показывает отдельные Validate/Smoke runs для этого документационного commit, поэтому CI результаты выше намеренно привязаны к проверенному runtime SHA, а не приписываются текущему SHA без evidence.
 
 CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не закрывают physical E2E gate.
 
@@ -80,3 +77,6 @@ CI и dry-run не выполняют реальный GPU inference в Google C
 6. Все 9 stages доходят до `completed`.
 7. Выполняется повторный запуск и проверяется отсутствие duplicate/corrupt artifacts.
 8. Выполняется interruption/reclaim/retry smoke со старым и новым lease.
+9. Фиксируются wall-clock timings, RAM/VRAM, model-load time и размеры artifacts.
+10. `scripts/colab_gpu_evidence.py` сохраняет машиночитаемое подтверждение GPU/CUDA/package/artifact state.
+11. После успешного выполнения всех пунктов физический production E2E можно считать подтверждённым.
