@@ -51,6 +51,7 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 - Artifact audit теперь отдельно выявляет `invalid_manifest`, duplicate artifact IDs, missing/orphan payloads, checksum/size mismatches и **любые declared paths вне artifact root, включая относительные `../...` пути**.
 - Artifact audit работает read-only и возвращает ненулевой exit code при обнаружении нарушений.
 - Canonical artifact publishers (`ingest`, `normalize`, ASR/diarization, local intelligence, speaker clustering, Colab embeddings) используют immutable publication semantics вместо перезаписи уже существующего payload.
+- Evidence snapshots из `scripts/colab_gpu_evidence.py` также публикуются immutable-режимом; повторная запись другим содержимым отклоняется regression test.
 
 ## Последние исправления
 
@@ -91,15 +92,15 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 35. Добавлены immutable publication checks для speaker clustering и Colab ECAPA embedding artifacts.
 36. Добавлена отдельная read-only проверка artifact store через `scripts/audit_artifacts.py` и regression coverage для duplicate/missing/orphan/checksum/path-boundary случаев.
 37. Исправлена проверка artifact audit для относительных путей вне root: `../outside/...` теперь корректно помечается как `path_outside_root`.
+38. Evidence collector переведён на immutable output publication и добавлен regression test, который подтверждает отказ от перезаписи существующего evidence snapshot.
 
 ## CI
 
-Последнее подтверждённое состояние после artifact-audit hardening:
+Последнее подтверждённое состояние после immutable evidence hardening:
 
-- `Validate` для commit `8058c5b99237da1663ca7bf4b6087efd7e09d6d3` — **success**; run `35120817504`, job `104877835669`. Прошли compile, notebook JSON/structure, schema, lint, все тесты, entrypoints и repository structure.
-- `CI Smoke` для того же commit — **success**; run `35120817607`, job/check `104877837299`. Прошли repository validation и `Exercise Oracle-local worker`.
-- Два дополнительных автоматических `retry` check-run на этом SHA имеют статус `skipped`, что соответствует ожидаемому поведению и не является ошибкой.
-- Последний подтверждённый runtime baseline `Validate #472` / `CI Smoke #376` таким образом заменён более новым зелёным runtime baseline на commit `8058c5b9`.
+- `Validate #524` для commit `5d4d465b124618ef85b07666711ccce506bdb9e8` — **success**; run `35124880121`, job `104891347352`. Прошли checkout@v7, setup-python@v7, системные зависимости, validation tools, compile, notebook JSON/structure, conversation schema, lint, tests, entrypoints и repository structure.
+- `CI Smoke #429` для того же commit — **success**; run `35124880233`, job `104891352758`. Прошли repository validation и `Exercise Oracle-local worker`.
+- Эти runs являются актуальным подтверждённым CI baseline для main после hardening evidence output.
 - CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не могут закрыть physical E2E gate.
 
 ## Канонический 9-stage pipeline
