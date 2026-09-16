@@ -191,7 +191,7 @@ class ExchangeCoordinator:
                 continue
             complete = getattr(self.repository, "complete", None)
             fail = getattr(self.repository, "fail", None)
-            if result.status == "completed":
+            if result.status == "completed" and callable(complete):
                 if result.worker != job.worker or result.lease_id != job.lease_id:
                     self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
                     continue
@@ -203,9 +203,28 @@ class ExchangeCoordinator:
                 except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
                     self.quarantine_result(path, f"invalid completed artifact for job {result.job_id}: {exc}")
                     continue
-                if callable(complete):
+                try:
+                    complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                except RuntimeError as exc:
+                    if self._lease_still_matches(job, result.worker, result.lease_id):
+                        raise
+                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}: {exc}")
+                    continue
+                self._consume_result(path)
+                changed += 1
+            else:
+                if result.status == "completed":
                     try:
-                        complete(result.job_id, result.worker, result.lease_id, result.artifact_id)
+                        self._verify_result_artifact(result)
+                    except (ArtifactResolutionError, FileNotFoundError, OSError, ValueError) as exc:
+                        self.quarantine_result(path, f"invalid completed artifact for job {result.job_id}: {exc}")
+                        continue
+                if result.status == "failed" and callable(fail):
+                    if result.worker != job.worker or result.lease_id != job.lease_id:
+                        self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
+                        continue
+                    try:
+                        fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
                     except RuntimeError as exc:
                         if self._lease_still_matches(job, result.worker, result.lease_id):
                             raise
@@ -222,28 +241,6 @@ class ExchangeCoordinator:
                     if applied:
                         self._consume_result(path)
                     changed += applied
-            elif result.status == "failed" and callable(fail):
-                if result.worker != job.worker or result.lease_id != job.lease_id:
-                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}")
-                    continue
-                try:
-                    fail(result.job_id, result.worker, result.lease_id, result.error or "worker failed")
-                except RuntimeError as exc:
-                    if self._lease_still_matches(job, result.worker, result.lease_id):
-                        raise
-                    self.quarantine_result(path, f"stale or foreign result for job {result.job_id}: {exc}")
-                    continue
-                self._consume_result(path)
-                changed += 1
-            else:
-                try:
-                    applied = apply_result(self.repository, result)
-                except (ExchangeError, KeyError, ValueError) as exc:
-                    self.quarantine_result(path, str(exc))
-                    continue
-                if applied:
-                    self._consume_result(path)
-                changed += applied
         return changed
 
     def cycle(self, recording_id: str, worker: str = "colab") -> tuple[list[Dispatch], int]:
