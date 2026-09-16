@@ -52,8 +52,9 @@ class ExchangeCoordinator:
             try:
                 payload = json.loads(request.read_text(encoding="utf-8"))
                 marker = JobEnvelope(**payload)
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
-                return True
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                self.quarantine_result(request, f"malformed exchange request: {exc}")
+                return False
             current = self.repository.get_job(job_id)
             if current is None:
                 self.quarantine_result(request, "orphaned request after lease recovery")
@@ -77,9 +78,10 @@ class ExchangeCoordinator:
             payload = json.loads(processing.read_text(encoding="utf-8"))
             marker = JobEnvelope(**payload)
             if marker.job_id != job_id or not marker.recording_id.strip() or not marker.stage.strip() or not marker.worker or not marker.lease_id:
-                return True
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
-            return True
+                raise ValueError("invalid processing claim")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            self.quarantine_result(processing, f"malformed processing claim: {exc}")
+            return False
         current = self.repository.get_job(job_id)
         if current is None:
             self.quarantine_result(processing, "orphaned processing marker after lease recovery")
