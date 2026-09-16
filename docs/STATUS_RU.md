@@ -66,18 +66,20 @@ Production E2E с реальными Whisper-large-v3, pyannote и ECAPA на Go
 19. Синхронизирован статусный документ с фактическим `main` и последними CI runs.
 20. Добавлена защита Colab claim от перезаписи уже существующего `processing` marker.
 21. Добавлен regression test на отказ от перезаписи существующего Colab processing claim.
+22. Повторно синхронизированы main SHA и CI run numbers после документационного коммита.
 
 ## CI
 
-Текущий `main` commit: `1d3b06e61185462117614e7141cd6838c66d1fda`.
+Текущий `main` commit: `264e98921fb5e0b3bcc49cb4d1e4b8d3ca833a27`.
 
-Для последнего изменения фактически прошёл GitHub Actions:
+Для этого main фактически прошли GitHub Actions:
 
-- `CI Smoke` run `#361` — **success**.
+- `Validate` run `#458` — **success**.
+- `CI Smoke` run `#362` — **success**.
 
-В run `#361` успешно прошли checkout/setup на Node 24-compatible actions, установка зависимостей, repository validation и Oracle-local worker smoke. Ошибок в substantive steps нет.
+`Validate #458` успешно прошёл checkout/setup, Python compile, notebook JSON/structure validation, conversation schema validation, lint, tests, script entrypoints и repository structure checks.
 
-Предыдущий main CI-контур также был зелёным: `Validate #455` и `CI Smoke #359` для предшествующего синхронизированного main.
+`CI Smoke #362` успешно прошёл checkout/setup, установку зависимостей, repository validation и Oracle-local worker smoke.
 
 Таким образом, **текущий main CI-verified**. CI не выполняет реальный GPU inference в Google Colab и поэтому не может закрыть physical E2E gate.
 
