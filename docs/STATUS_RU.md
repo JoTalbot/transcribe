@@ -55,14 +55,16 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 Последнее подтверждённое состояние текущего `main`:
 
-- `main` = `1b943f689182c182a0eaef40264bb5e35fec453e`.
+- `main` = `7f7326493d23a112ef66fc61a612288cb8dfce7b`.
 - `Validate #538` — **success**, run `35136116518`, job `104928796127`.
 - `CI Smoke #443` — **success**, run `35136116746`, job `104928797160`.
-- Validate на текущем SHA выполнил compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks.
+- Validate на предыдущем runtime SHA выполнил compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks.
 - Validate подтвердил **222 passed**.
 - Smoke подтвердил Oracle-local worker integration: **5 passed**.
 - Retry workflow checks skipped, поскольку основной CI не завершался ошибкой.
 - Workflow artifacts не требуются для текущей валидации; Validate/Smoke не публикуют отдельный artifact bundle.
+
+Документационное обновление этого status-файла находится в текущем `main`; после него требуется отдельное прохождение CI, поскольку этот commit был создан уже после указанных выше runtime checks.
 
 CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не закрывают physical E2E gate.
 
@@ -78,35 +80,3 @@ CI и dry-run не выполняют реальный GPU inference в Google C
 6. Все 9 stages доходят до `completed`.
 7. Выполняется повторный запуск и проверяется отсутствие duplicate/corrupt artifacts.
 8. Выполняется interruption/reclaim/retry smoke со старым и новым lease.
-9. Фиксируются wall-clock timings, RAM/VRAM, model-load time и размеры artifacts.
-10. `scripts/colab_gpu_evidence.py` сохраняет машиночитаемое подтверждение GPU/CUDA/package/artifact state.
-11. После успешного выполнения всех пунктов физический production E2E можно считать подтверждённым.
-
-## Evidence
-
-Для физического запуска подготовлены:
-
-- `docs/COLAB_GPU_E2E_CHECKLIST_RU.md`
-- `docs/COLAB_GPU_E2E_EVIDENCE_TEMPLATE_RU.md`
-- `docs/COLAB_EXCHANGE.md`
-- `scripts/colab_gpu_evidence.py`
-
-Канонический Colab worker запускается через:
-
-```bash
-python scripts/colab_exchange_worker.py \
-  --root /content/drive/MyDrive/transcribe/exchange \
-  --input /content/drive/MyDrive/transcribe/input \
-  --output /content/drive/MyDrive/transcribe/exchange/artifacts \
-  --once
-```
-
-Для повторного polling используется `--poll 30`.
-
-Физический запуск требует CUDA, Colab Secret `HUGGINGFACE_TOKEN` и принятия условий доступа к используемым Hugging Face моделям.
-
-## Ограничение
-
-Google Colab не предоставляет гарантированный headless/public API для такого сценария. Поэтому Colab остаётся best-effort GPU worker через exchange/runner механизм, а Oracle должен оставаться устойчивым оркестратором и источником истины состояния.
-
-Issue #11 остаётся открытым до появления физического Oracle → Drive → Colab CUDA → Whisper → pyannote → ECAPA → Oracle/PostgreSQL evidence с timing, RAM/VRAM, artifact, repeat и recovery данными.
