@@ -1,8 +1,9 @@
 import json
+from dataclasses import asdict
 from pathlib import Path
 
-from transcribe_intelligence.artifacts import build_manifest, write_manifest
 from scripts.audit_artifacts import audit_artifacts
+from transcribe_intelligence.artifacts import build_manifest, write_manifest
 
 
 def _publish(root: Path, *, artifact_id: str = "art-1", relative_path: str = "rec/a.txt") -> Path:
@@ -93,19 +94,9 @@ def test_audit_reports_manifest_path_outside_root(tmp_path: Path) -> None:
         producer="test",
         model_version="test-1",
     )
+    payload_data = asdict(manifest)
+    payload_data["path"] = "../outside/payload.txt"
     manifest_path = tmp_path / "outside.manifest.json"
-    payload_data = json.loads(json.dumps(manifest.__dict__)) if hasattr(manifest, "__dict__") else {
-        "artifact_id": manifest.artifact_id,
-        "recording_id": manifest.recording_id,
-        "stage": manifest.stage,
-        "kind": manifest.kind,
-        "path": "/outside/root/payload.txt",
-        "sha256": manifest.sha256,
-        "size_bytes": manifest.size_bytes,
-        "producer": manifest.producer,
-        "model_version": manifest.model_version,
-    }
-    payload_data["path"] = "/outside/root/payload.txt"
     manifest_path.write_text(json.dumps(payload_data), encoding="utf-8")
 
     report = audit_artifacts(tmp_path)
