@@ -4,7 +4,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
+import tempfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +49,27 @@ def build_manifest(path: Path, *, artifact_id: str, recording_id: str, stage: st
 
 
 def write_manifest(manifest: ArtifactManifest, path: Path) -> None:
-    """Atomically persist a JSON artifact manifest."""
+    """Atomically persist an immutable JSON artifact manifest."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(asdict(manifest), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    if path.exists():
+        try:
+            existing = ArtifactManifest(**json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(f"existing artifact manifest is invalid: {path}") from exc
+        if existing != manifest:
+            raise ValueError(f"artifact manifest already exists with different content: {path}")
+        return
+
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(manifest), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def verify_manifest(manifest: ArtifactManifest) -> bool:
