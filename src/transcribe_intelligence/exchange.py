@@ -58,7 +58,13 @@ def _validate_job_id(job_id: str) -> None:
     """Reject IDs that could escape an exchange subdirectory as path components."""
     if not job_id.strip():
         raise ValueError("job_id must not be empty")
-    if Path(job_id).name != job_id or job_id in {".", ".."}:
+    if (
+        Path(job_id).name != job_id
+        or job_id in {".", ".."}
+        or "/" in job_id
+        or "\\" in job_id
+        or "\x00" in job_id
+    ):
         raise ValueError("job_id must be a single filesystem-safe path component")
 
 
