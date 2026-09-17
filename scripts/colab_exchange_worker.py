@@ -27,6 +27,10 @@ except ImportError:
     from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 
 
+class ProcessingClaimExists(ExchangeError):
+    """Signal that another worker already owns the processing path."""
+
+
 def read_request(path: Path) -> JobEnvelope:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -53,7 +57,7 @@ def claim_request(exchange: FileExchange, job_id: str) -> Path:
         raise ExchangeError(f"Colab worker does not support stage {request.stage!r}")
     target = processing / source.name
     if target.exists():
-        raise ExchangeError(f"processing claim already exists for {job_id}")
+        raise ProcessingClaimExists(f"processing claim already exists for {job_id}")
     source.replace(target)
     return target
 
@@ -75,6 +79,8 @@ def quarantine_claim(exchange: FileExchange, path: Path) -> Path:
 def process_one(exchange: FileExchange, job_id: str, processor, metrics: list[dict[str, object]] | None = None) -> ResultEnvelope:
     try:
         path = claim_request(exchange, job_id)
+    except ProcessingClaimExists:
+        raise
     except ExchangeError:
         source = exchange.requests / f"{job_id}.json"
         if source.is_file():
