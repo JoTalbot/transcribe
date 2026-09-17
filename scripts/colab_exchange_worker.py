@@ -17,6 +17,7 @@ for import_root in (SRC_ROOT, PROJECT_ROOT):
 
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope, ResultEnvelope
 from transcribe_intelligence.artifacts import write_immutable_text
+from transcribe_intelligence.worker_capabilities import COLAB_GPU
 
 try:
     from .colab_inference import InferenceConfig, make_processor
@@ -26,13 +27,31 @@ except ImportError:
     from colab_speaker_embeddings import EmbeddingConfig, extract_and_persist
 
 
+def read_request(path: Path) -> JobEnvelope:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        request = JobEnvelope(**payload)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ExchangeError(f"invalid request {path}") from exc
+    if not request.job_id.strip() or not request.recording_id.strip() or not request.stage.strip():
+        raise ExchangeError(f"request {path} contains empty required fields")
+    if not request.worker or not request.lease_id:
+        raise ExchangeError(f"request {path} is missing worker or lease_id")
+    return request
+
+
 def claim_request(exchange: FileExchange, job_id: str) -> Path:
     source = exchange.requests / f"{job_id}.json"
     processing = exchange.root / "processing"
     processing.mkdir(parents=True, exist_ok=True)
-    target = processing / source.name
     if not source.is_file():
         raise FileNotFoundError(source)
+    request = read_request(source)
+    if request.worker != COLAB_GPU.worker:
+        raise ExchangeError(f"Colab worker cannot claim request for worker {request.worker!r}")
+    if not COLAB_GPU.supports(request.stage):
+        raise ExchangeError(f"Colab worker does not support stage {request.stage!r}")
+    target = processing / source.name
     if target.exists():
         raise ExchangeError(f"processing claim already exists for {job_id}")
     source.replace(target)
@@ -40,16 +59,7 @@ def claim_request(exchange: FileExchange, job_id: str) -> Path:
 
 
 def read_claimed(path: Path) -> JobEnvelope:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        request = JobEnvelope(**payload)
-    except (OSError, json.JSONDecodeError, TypeError) as exc:
-        raise ExchangeError(f"invalid claimed request {path}") from exc
-    if not request.job_id.strip() or not request.recording_id.strip() or not request.stage.strip():
-        raise ExchangeError(f"claimed request {path} contains empty required fields")
-    if not request.worker or not request.lease_id:
-        raise ExchangeError(f"claimed request {path} is missing worker or lease_id")
-    return request
+    return read_request(path)
 
 
 def quarantine_claim(exchange: FileExchange, path: Path) -> Path:
@@ -63,7 +73,13 @@ def quarantine_claim(exchange: FileExchange, path: Path) -> Path:
 
 
 def process_one(exchange: FileExchange, job_id: str, processor, metrics: list[dict[str, object]] | None = None) -> ResultEnvelope:
-    path = claim_request(exchange, job_id)
+    try:
+        path = claim_request(exchange, job_id)
+    except ExchangeError:
+        source = exchange.requests / f"{job_id}.json"
+        if source.is_file():
+            quarantine_claim(exchange, source)
+        raise
     started = time.perf_counter()
     request = None
     try:
