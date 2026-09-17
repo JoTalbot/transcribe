@@ -57,15 +57,27 @@ def claim_request(exchange: FileExchange, job_id: str) -> Path:
         raise ExchangeError(f"Colab worker does not support stage {request.stage!r}")
     target = processing / source.name
     try:
-        os.link(source, target)
+        payload = source.read_bytes()
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as claimed:
+                fd = -1
+                claimed.write(payload)
+                claimed.flush()
+                os.fsync(claimed.fileno())
+        finally:
+            if fd != -1:
+                os.close(fd)
     except FileExistsError as exc:
         raise ProcessingClaimExists(f"processing claim already exists for {job_id}") from exc
     except OSError as exc:
+        target.unlink(missing_ok=True)
         raise ExchangeError(f"unable to create processing claim for {job_id}") from exc
     try:
         source.unlink()
     except OSError:
-        target.unlink(missing_ok=True)
+        # Keep the exclusive processing claim. Removing it here would reopen a
+        # race in which another worker can acquire the same request.
         raise
     return target
 
