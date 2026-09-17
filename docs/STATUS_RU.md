@@ -1,6 +1,6 @@
 # Статус проекта Transcribe
 
-Дата проверки: 2026-09-17
+Дата актуализации: 2026-09-17
 
 ## Текущее состояние
 
@@ -19,6 +19,7 @@ Production E2E с реальными Whisper large-v3, pyannote и SpeechBrain E
 - PostgreSQL integration coverage включает dispatch → lease → reclaim → stale-result quarantine → принятие результата нового worker.
 - Oracle daemon переживает временный сбой отдельного цикла.
 - Oracle и Colab exchange workers защищены от перезаписи существующего `processing/<job>.json` marker.
+- При уже существующем processing claim исходный request сохраняется и не переносится в quarantine.
 - Malformed и stale/foreign processing markers после проверки отправляются в quarantine и не блокируют новый dispatch.
 - Stale request после lease reclaim также отправляется в quarantine.
 - Exchange сохраняет `worker + lease_id` от execution job до результата.
@@ -55,13 +56,12 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 ## CI
 
-Последнее подтверждённое состояние `main`:
+Для последнего функционального commit `9fd7b735cccac081e7028fb3c1bc1d53d10714b2` подтверждены:
 
-- `fef4509901df3fb25d995f88979c10087c688a1f` — текущий `main`, исправление неиспользуемых импортов в тесте physical Colab evidence validator.
-- `Validate #607` — **success** на текущем SHA.
-- `CI Smoke #514` — **success** на текущем SHA.
-- Validate включает compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks, repository structure checks и проверку entrypoint физического GPU evidence validator.
-- Smoke подтверждает Oracle-local worker integration.
+- `Validate #611` — **success**;
+- `CI Smoke #518` — **success**;
+- Validate: compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks завершились успешно;
+- Smoke: repository validation и Oracle-local worker integration завершились успешно.
 - Workflow permissions для validation ограничены `contents: read`.
 
 CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не закрывают physical E2E gate.
