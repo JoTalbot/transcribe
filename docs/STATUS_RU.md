@@ -22,7 +22,7 @@ Production E2E с реальными Whisper large-v3, pyannote и SpeechBrain E
 - Oracle daemon переживает временный сбой отдельного цикла.
 - Oracle и Colab exchange workers защищены от перезаписи существующего `processing/<job>.json` marker.
 - При уже существующем processing claim исходный request сохраняется и не переносится в quarantine.
-- Colab claim теперь использует эксклюзивное создание файла (`O_CREAT | O_EXCL`) вместо check-then-create.
+- Colab claim использует эксклюзивное создание файла (`O_CREAT | O_EXCL`) вместо check-then-create.
 - После успешного создания processing claim исходный request удаляется; ошибка удаления не отменяет уже созданный claim.
 - Malformed и stale/foreign processing markers после проверки отправляются в quarantine и не блокируют новый dispatch.
 - Stale request после lease reclaim также отправляется в quarantine.
@@ -61,16 +61,14 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 ## CI
 
-На `main` был обнаружен и исправлен единственный lint-блокер в Colab claim implementation: Ruff `TRY203` отклонял бессмысленный `except OSError: raise`. Исправление опубликовано отдельным commit `c54068deb29a67a5adea4bf7fc5668c733963d49`.
+Текущий `main` указывает на `c54068deb29a67a5adea4bf7fc5668c733963d49` (`fix: satisfy lint for exclusive Colab claim`). После исправления Ruff `TRY203` оба push-workflow для этого head прошли успешно:
 
-Перед этим:
+- `Validate #616` — **success**;
+- `CI Smoke #523` — **success**.
 
-- `CI Smoke #522` для `35434aac605728962df6144ce45169b97a790e47` — **success**;
-- `Validate #615` для `35434aac605728962df6144ce45169b97a790e47` — **failure** только на шаге `Lint Python` из-за Ruff `TRY203`; compile, notebook JSON/structure, conversation schema и установка зависимостей прошли успешно;
-- предыдущие `Validate #611` и `CI Smoke #518` для функционального commit `9fd7b735cccac081e7028fb3c1bc1d53d10714b2` — **success**.
-- Workflow permissions для validation ограничены `contents: read`.
+Smoke #523 подтвердил checkout, установку зависимостей, repository validation, Oracle-local worker exercise и cleanup. Предыдущий `Validate #615` был **failure** только на шаге `Lint Python` из-за Ruff `TRY203`; функциональная семантика `O_EXCL` при этом не менялась.
 
-После commit `c54068deb29a67a5adea4bf7fc5668c733963d49` CI должен быть перепроверен на новом head перед объявлением main зелёной.
+Workflow permissions для validation ограничены `contents: read`.
 
 CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не закрывают physical E2E gate.
 
@@ -88,4 +86,5 @@ CI и dry-run не выполняют реальный GPU inference в Google C
 8. Выполняется interruption/reclaim/retry smoke со старым и новым lease.
 9. Фиксируются wall-clock timings, RAM/VRAM, model-load time и размеры artifacts.
 10. `scripts/colab_gpu_evidence.py` сохраняет машиночитаемое подтверждение GPU/CUDA/package/artifact state.
-11. После успешного выполнения всех пунктов физический production E2E можно считать подтверждённым.
+11. Отдельно физически проверяется, что используемая файловая система Google Drive действительно обеспечивает ожидаемую эксклюзивность `O_CREAT | O_EXCL`, а не только локальная POSIX FS в CI.
+12. После успешного выполнения всех пунктов физический production E2E можно считать подтверждённым.
