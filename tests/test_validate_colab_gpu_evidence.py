@@ -1,6 +1,3 @@
-import json
-from pathlib import Path
-
 from scripts.validate_colab_gpu_evidence import EXPECTED_STAGES, validate
 
 
@@ -43,7 +40,9 @@ def test_cpu_snapshot_is_rejected() -> None:
 
 def test_missing_stage_is_rejected() -> None:
     payload = _payload()
-    payload["artifacts"] = [item for item in payload["artifacts"] if item["stage"] != "diarization"]
+    payload["artifacts"] = [
+        item for item in payload["artifacts"] if item["stage"] != "diarization"
+    ]
 
     errors = validate(payload)
 
