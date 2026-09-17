@@ -1,6 +1,6 @@
 # Статус проекта Transcribe
 
-Дата проверки: 2026-09-16
+Дата проверки: 2026-09-17
 
 ## Текущее состояние
 
@@ -30,6 +30,8 @@ Production E2E с реальными Whisper large-v3, pyannote и SpeechBrain E
 - Colab GPU evidence collector фиксирует GPU/CUDA/package metadata и проверяет artifact manifests, размер и SHA-256 без вывода секретов.
 - Evidence snapshots публикуются immutable-режимом.
 - Cross-worker regression проходит через реальные `process_one()` entrypoints и проверяет весь 9-stage маршрут и exact dependency artifact IDs.
+- Каноническая физическая E2E record-документация защищена regression-тестами и явно отделяет CI/dry-run от реального GPU evidence.
+- Тестовый validator физического Colab GPU evidence проверяет CUDA/GPU/VRAM, package metadata, runtime metrics, все 9 stages и verified artifacts.
 
 ## Канонический 9-stage pipeline
 
@@ -55,12 +57,12 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 Последнее подтверждённое состояние `main`:
 
-- `31dd047fc9bd89cf8cc23711add4340b2a827442` — текущий `main`, `ci: restrict validate workflow permissions`.
-- `Validate #542` — **success**, run `35146547401`, job `104963988081`, на этом SHA.
-- `CI Smoke #448` — **success**, run `35146547410`, job `104963988949`, на этом SHA.
-- Validate выполнил compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks и repository structure checks.
-- Smoke подтвердил Oracle-local worker integration.
-- `validate.yml` теперь явно ограничен `permissions: contents: read`; workflow не получает избыточных прав по умолчанию.
+- `fef4509901df3fb25d995f88979c10087c688a1f` — текущий `main`, исправление неиспользуемых импортов в тесте physical Colab evidence validator.
+- `Validate #607` — **success** на текущем SHA.
+- `CI Smoke #514` — **success** на текущем SHA.
+- Validate включает compile, notebook JSON/structure validation, schema validation, lint, полный тестовый набор, entrypoint checks, repository structure checks и проверку entrypoint физического GPU evidence validator.
+- Smoke подтверждает Oracle-local worker integration.
+- Workflow permissions для validation ограничены `contents: read`.
 
 CI и dry-run не выполняют реальный GPU inference в Google Colab и поэтому не закрывают physical E2E gate.
 
