@@ -9,13 +9,13 @@ from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnv
 
 def test_process_one_claims_and_publishes_result(tmp_path: Path):
     exchange = FileExchange(tmp_path / "exchange")
-    exchange.put_request(JobEnvelope("j1", "r1", "asr", "input-1", worker="worker-a", lease_id="lease-1"))
+    exchange.put_request(JobEnvelope("j1", "r1", "asr", "input-1", worker="colab-gpu", lease_id="lease-1"))
 
     result = process_one(exchange, "j1", dry_run_processor)
 
     assert result.status == "completed"
     assert result.artifact_id == "dry-run:j1"
-    assert result.worker == "worker-a"
+    assert result.worker == "colab-gpu"
     assert result.lease_id == "lease-1"
     assert not (exchange.requests / "j1.json").exists()
     assert not (exchange.root / "processing" / "j1.json").exists()
@@ -24,7 +24,7 @@ def test_process_one_claims_and_publishes_result(tmp_path: Path):
 
 def test_process_one_publishes_failure_for_processor_error(tmp_path: Path):
     exchange = FileExchange(tmp_path / "exchange")
-    exchange.put_request(JobEnvelope("j2", "r2", "diarization", worker="worker-a", lease_id="lease-2"))
+    exchange.put_request(JobEnvelope("j2", "r2", "diarization", worker="colab-gpu", lease_id="lease-2"))
 
     def broken(_request):
         raise RuntimeError("GPU unavailable")
@@ -34,12 +34,12 @@ def test_process_one_publishes_failure_for_processor_error(tmp_path: Path):
     assert result.status == "failed"
     assert result.error == "GPU unavailable"
     assert result.artifact_id is None
-    assert result.worker == "worker-a"
+    assert result.worker == "colab-gpu"
     assert result.lease_id == "lease-2"
     assert exchange.get_result("j2") == result
 
 
-def test_process_one_quarantines_malformed_claim_instead_of_leaking_processing_marker(tmp_path: Path):
+def test_process_one_quarantines_missing_worker_instead_of_leaking_processing_marker(tmp_path: Path):
     exchange = FileExchange(tmp_path / "exchange")
     exchange.put_request(JobEnvelope("j3", "r3", "asr"))
 
@@ -50,9 +50,32 @@ def test_process_one_quarantines_malformed_claim_instead_of_leaking_processing_m
     assert (exchange.results / "quarantine" / "j3.json").exists()
 
 
+def test_process_one_quarantines_request_owned_by_oracle_local(tmp_path: Path):
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_request(JobEnvelope("j-local", "r-local", "text_analysis", worker="oracle-local", lease_id="lease-local"))
+
+    with pytest.raises(ExchangeError, match="cannot claim request for worker 'oracle-local'"):
+        process_one(exchange, "j-local", dry_run_processor)
+
+    assert not (exchange.root / "processing" / "j-local.json").exists()
+    assert (exchange.results / "quarantine" / "j-local.json").exists()
+    assert not (exchange.results / "j-local.json").exists()
+
+
+def test_process_one_quarantines_unsupported_stage(tmp_path: Path):
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_request(JobEnvelope("j-unsupported", "r", "text_analysis", worker="colab-gpu", lease_id="lease"))
+
+    with pytest.raises(ExchangeError, match="does not support stage 'text_analysis'"):
+        process_one(exchange, "j-unsupported", dry_run_processor)
+
+    assert not (exchange.root / "processing" / "j-unsupported.json").exists()
+    assert (exchange.results / "quarantine" / "j-unsupported.json").exists()
+
+
 def test_process_one_releases_processing_marker_when_result_publish_fails(tmp_path: Path):
     exchange = FileExchange(tmp_path / "exchange")
-    exchange.put_request(JobEnvelope("j4", "r4", "asr", worker="worker-a", lease_id="lease-4"))
+    exchange.put_request(JobEnvelope("j4", "r4", "asr", worker="colab-gpu", lease_id="lease-4"))
 
     original_put_result = exchange.put_result
 
@@ -70,13 +93,11 @@ def test_process_one_releases_processing_marker_when_result_publish_fails(tmp_pa
 
 def test_process_one_never_overwrites_existing_processing_claim(tmp_path: Path):
     exchange = FileExchange(tmp_path / "exchange")
-    exchange.put_request(JobEnvelope("j5", "r5", "asr", worker="worker-a", lease_id="lease-new"))
+    exchange.put_request(JobEnvelope("j5", "r5", "asr", worker="colab-gpu", lease_id="lease-new"))
     processing = exchange.root / "processing"
     processing.mkdir(parents=True, exist_ok=True)
-    existing = JobEnvelope("j5", "r5", "asr", worker="worker-old", lease_id="lease-old")
-    exchange.put_request(existing)
     (processing / "j5.json").write_text(
-        '{"job_id":"j5","recording_id":"r5","stage":"asr","worker":"worker-old","lease_id":"lease-old"}',
+        '{"job_id":"j5","recording_id":"r5","stage":"asr","worker":"colab-gpu","lease_id":"lease-old"}',
         encoding="utf-8",
     )
 
