@@ -73,6 +73,7 @@ jobs:
           python scripts/colab_runner.py --help >/dev/null
           python scripts/submit_exchange_jobs.py --help >/dev/null
           python scripts/apply_exchange_results.py --help >/dev/null
+          python scripts/validate_colab_gpu_evidence.py --help >/dev/null
       - name: Check repository structure
         run: |
           test -f README.md
@@ -82,6 +83,7 @@ jobs:
           test -f scripts/colab_runner.py
           test -f scripts/build_manifest.py
           test -f scripts/colab_worker.py
+          test -f scripts/validate_colab_gpu_evidence.py
           test -f src/transcribe_intelligence/__init__.py
           test -f src/transcribe_intelligence/text_analysis.py
           test -f schemas/conversation.schema.json
