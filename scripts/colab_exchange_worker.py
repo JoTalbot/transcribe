@@ -73,12 +73,7 @@ def claim_request(exchange: FileExchange, job_id: str) -> Path:
     except OSError as exc:
         target.unlink(missing_ok=True)
         raise ExchangeError(f"unable to create processing claim for {job_id}") from exc
-    try:
-        source.unlink()
-    except OSError:
-        # Keep the exclusive processing claim. Removing it here would reopen a
-        # race in which another worker can acquire the same request.
-        raise
+    source.unlink()
     return target
 
 
