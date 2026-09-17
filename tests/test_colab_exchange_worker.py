@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from scripts.colab_exchange_worker import dry_run_processor, process_one, write_metrics
+from scripts.colab_exchange_worker import claim_request, dry_run_processor, process_one, write_metrics
 from transcribe_intelligence.exchange import ExchangeError, FileExchange, JobEnvelope
 
 
@@ -107,6 +107,28 @@ def test_process_one_never_overwrites_existing_processing_claim(tmp_path: Path):
     assert (exchange.requests / "j5.json").exists()
     assert (processing / "j5.json").read_text(encoding="utf-8").find("lease-old") >= 0
     assert not (exchange.results / "j5.json").exists()
+
+
+def test_claim_request_preserves_exclusive_claim_when_source_unlink_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    exchange = FileExchange(tmp_path / "exchange")
+    exchange.put_request(JobEnvelope("j6", "r6", "asr", "input-6", worker="colab-gpu", lease_id="lease-6"))
+    source = exchange.requests / "j6.json"
+    processing = exchange.root / "processing" / "j6.json"
+    original_unlink = Path.unlink
+
+    def fail_source_unlink(path: Path, *args, **kwargs):
+        if path == source:
+            raise OSError("request storage temporarily unavailable")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_source_unlink)
+
+    with pytest.raises(OSError, match="request storage temporarily unavailable"):
+        claim_request(exchange, "j6")
+
+    assert source.exists()
+    assert processing.exists()
+    assert processing.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
 
 
 def test_write_metrics_uses_monotonic_elapsed_time(tmp_path: Path):
