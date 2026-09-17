@@ -6,7 +6,7 @@
 
 Ядро распределённого execution pipeline доведено до устойчивого PostgreSQL/lease/exchange уровня. Полный 9-стадийный dry-run проходит в CI, включая Oracle и Colab exchange worker entrypoints, capability routing и канонические artifact dependencies.
 
-Последнее функциональное изменение усиливает захват Colab exchange job: `processing/<job>.json` создаётся эксклюзивно через `O_EXCL`, поэтому конкурентные workers не могут перезаписать существующий claim. После создания claim request удаляется; если удаление исходного request не удалось, claim сохраняется, чтобы не открыть повторный захват.
+Последнее функциональное изменение усиливает захват Colab exchange job: `processing/<job>.json` создаётся эксклюзивно через `O_EXCL`, поэтому конкурентные workers не могут перезаписать существующий claim. После создания claim request удаляется; если удаление исходного request не удалось, claim сохраняется, чтобы не открыть повторный захват. Добавлен отдельный regression-тест именно для отказа удаления исходного request после успешного claim.
 
 Production E2E с реальными Whisper large-v3, pyannote и SpeechBrain ECAPA на Google Colab GPU ещё не выполнен. Поэтому полный production-ready статус для физического GPU пути пока не объявляется.
 
@@ -24,6 +24,7 @@ Production E2E с реальными Whisper large-v3, pyannote и SpeechBrain E
 - При уже существующем processing claim исходный request сохраняется и не переносится в quarantine.
 - Colab claim использует эксклюзивное создание файла (`O_CREAT | O_EXCL`) вместо check-then-create.
 - После успешного создания processing claim исходный request удаляется; ошибка удаления не отменяет уже созданный claim.
+- Regression-тест подтверждает сохранение request и processing claim при отказе удаления request после успешного эксклюзивного claim.
 - Malformed и stale/foreign processing markers после проверки отправляются в quarantine и не блокируют новый dispatch.
 - Stale request после lease reclaim также отправляется в quarantine.
 - Exchange сохраняет `worker + lease_id` от execution job до результата.
@@ -61,12 +62,12 @@ Dry-run подтверждает логический маршрут, lease/exch
 
 ## CI
 
-Текущий `main` указывает на `c54068deb29a67a5adea4bf7fc5668c733963d49` (`fix: satisfy lint for exclusive Colab claim`). После исправления Ruff `TRY203` оба push-workflow для этого head прошли успешно:
+Текущий `main` указывает на `d3c52bb7d87f6126e57eede412c3514298bec63a` (`test: cover failed source unlink after Colab claim`). Для этого head оба push-workflow прошли успешно:
 
-- `Validate #616` — **success**;
-- `CI Smoke #523` — **success**.
+- `Validate #619` — **success**;
+- `CI Smoke #527` — **success**.
 
-Smoke #523 подтвердил checkout, установку зависимостей, repository validation, Oracle-local worker exercise и cleanup. Предыдущий `Validate #615` был **failure** только на шаге `Lint Python` из-за Ruff `TRY203`; функциональная семантика `O_EXCL` при этом не менялась.
+`Validate #615` ранее завершился **failure** только на шаге `Lint Python` из-за Ruff `TRY203`; это было исправлено в следующем коммите без изменения функциональной семантики `O_EXCL`. `CI Smoke #521` был отменён из-за появления более нового push, а не из-за ошибки тестов.
 
 Workflow permissions для validation ограничены `contents: read`.
 
