@@ -56,9 +56,17 @@ def claim_request(exchange: FileExchange, job_id: str) -> Path:
     if not COLAB_GPU.supports(request.stage):
         raise ExchangeError(f"Colab worker does not support stage {request.stage!r}")
     target = processing / source.name
-    if target.exists():
-        raise ProcessingClaimExists(f"processing claim already exists for {job_id}")
-    source.replace(target)
+    try:
+        os.link(source, target)
+    except FileExistsError as exc:
+        raise ProcessingClaimExists(f"processing claim already exists for {job_id}") from exc
+    except OSError as exc:
+        raise ExchangeError(f"unable to create processing claim for {job_id}") from exc
+    try:
+        source.unlink()
+    except OSError:
+        target.unlink(missing_ok=True)
+        raise
     return target
 
 
@@ -277,7 +285,3 @@ def main() -> int:
         if args.metrics_output:
             metrics_path = write_metrics(args.metrics_output, started_at_unix, started_perf, model_timings, jobs)
             print(f"metrics\t{metrics_path}", flush=True)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
